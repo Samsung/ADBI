@@ -1,0 +1,61 @@
+Thread stabilization
+--------------------
+
+Thread stabilization is waiting for all threads of a process to move out of any memory areas, which contain injected 
+code (OOL handlers or injectables).
+
+A thread, which is running (or stopped inside) an injected memory segment is considered unstable.  When there is at 
+least one unstable thread in a process, the whole process is considered unstable as well.
+
+In an unstable process no modifications to existing injections should be done.  Existing injections should not be
+modified or unloaded, because the code pointed by the PC register of the unstable threads could change or disappear.
+
+Note that it is OK to insert new injections too processes even if they are unstable.  Such operations should be safe
+because immediately after the injection, no thread should be running the newly injected code. For this reason, there is
+no need to stop and stabilize a process when a thread loads a dynamic library.  In such cases ADBI stops the loading
+thread, scans for segment changes, injects new code if necessary and allows the thread to continue.  Other threads can
+run during this operation.
+
+
+Stabilization implementation
+----------------------------
+
+Stabilization is implemented as follows (we assume that the process is already stopped).
+
+1. Scan through the threads and find those, which are unstable.
+2. If no unstable threads were found, stop.
+3. Temporarily remove the executable flag from all executable memory regions using mprotect.
+3. Resume all unstable threads.
+4. Call sched_yield() to raise the chance of a context switch to one of the unstable threads and give them some time to
+   finish.
+5. Wait on the process (pid).  We should receive a SIGSEGV from one of the unstable threads.  
+6. If there are still any threads running, go to step 5.
+7. Set the executable flags back. 
+
+
+Possible problems
+-----------------
+
+On some architectures it is not possible to mark a memory segment readable, but not executable.  ARM is not one of 
+them.  There are separate flags for reading and executing.  However, the kernel allows to optionally emulate the 
+behavior as part of the personalities feature.  The feature is called READ_IMPLIES_EXEC.  It only has meaning when
+new memory segments are mmapped or when mprotect is called.  If READ_IMPLIES_EXEC is enabled, a memory segment, which 
+has the read permission, will also have executable permission, even if the user did not specify that.  
+
+Unfortunately, on many kernels the default personality has the READ_IMPLIES_EXEC feature enabled, which causes problems
+when trying to temporary remove the executable rights from a segment.  
+
+Luckily, the personality can easily be changed during process execution.  Moreover, a change only affects future calls 
+to mmap and mprotect.  Permissions of existing segments are left untouched.  
+
+When adbiserver tries to change the permissions of a segment and the new requested permissions include reading, but not 
+executing, it temporarily changes the the current personality (disabling READ_IMPLIES_EXEC) if required.  Before 
+running any code, the personality is reset to the original value.
+
+
+Why is it called 'stabilization'
+--------------------------------
+
+The term 'stabilization' was first used in GDB internals.  In GDB stabilization means 'moving out of jump pads', 
+waiting for threads to leave injected trampoline wrapper code.  In the uprobes kernel module, a similar operation is 
+called 'quiescencing'.

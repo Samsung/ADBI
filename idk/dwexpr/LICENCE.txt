@@ -1,0 +1,2 @@
+Large part of the modules (pydevtools) has been developed for internal applications at CSR (http://www.csr.com/) (copyright owner).
+CSR allowed to release the whole project under the BSD license.

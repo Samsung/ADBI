@@ -1,0 +1,72 @@
+This demo will show how to track when processes are using /dev/binder device. The only place where libbinder talks to binder device is function IPCThreadState::talkWithDriver(). This demo will show how to prepare injectable for tracing calls and returns from IPCThreadState::talkWithDriver() function.
+
+At first we need to create filter file to filter unneeded functions from tracking (autoadbi generates handlers for all procedures in binary by default). Unfortunately ADBI does not suport C++ DWARF information, therefore we need to create file with pattern that will match IPCThreadState::talkWithDriver() symbol name. We can obtain symbol name using readelf and writes it to filter file, but if we need more portable soluion better idea is to prepare regex. Like:
+
+.*IPCThreadState.*talkWithDriver.*
+
+Usage:
+
+Make sure ADBICC env variable is set to valid path to gcc. If not:
+export ADBICC=/path/to/gcc-4.9/bin/aarch64-linux-android-gcc
+
+For this example we need adbi_snprintf library injectable on the device. Refer to ./demo/adbi_snprintf directory.
+
+
+1. Link system root directory with debugging symbols:
+
+ln -s $ANDROID/out/target/product/$PRODUCT/symbols
+
+2. Generate handlers at begin and end of taklWithDriver function in IPCThreadState class using systrace handler template:   
+
+autoadbi -t systrace -a fns --sysroot ./symbols -f binder.patterns /system/lib64/libbinder.so > generated.adbi
+
+-t systrace			-> Use systrace handler template. This template generates 
+					   code that writes to trace_marker on tracepoint hit.
+-a fns				-> Action: functions (fns) - track procedures begin and end.
+					   Autoadbi will automatically find all procedure epilogs.
+--sysroot			-> Path to system root directory.
+-f binder.patterns 	-> Filter file. Filter out all symbols/function names that
+					   don't match any pattern from file (file uses Regex patterns).
+
+3. Make injectable:
+
+mkinj --sysroot ./symbols generated.adbi
+
+4. Copy all needed files to device
+
+adb push ./adbi_snpintf.inj /data/
+adb push ./generated.inj /data/
+
+5. Run:
+
+a) Obtain zygote64 PID
+
+adb shell ps | grep zygote64
+
+b) Run adbiserver
+
+adb forward tcp:9999 tcp:9999
+adb shell
+# su
+# setenforce 0
+# /data/adbiserver
+
+c) Attach to zygote64
+
+adbi3
+# load /data/adbi_snprintf.inj
+# load /data/generated.inj
+# attach $ZYGOTE_PID
+# start
+
+d) See strace output in tracing_pipe
+
+adb shell
+# cd /d/tracing
+# echo 1 > ./tracing_on
+# cat ./trace_pipe
+^C
+
+e) Capture systrace
+
+systrace.py -t 30 sched

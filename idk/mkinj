@@ -1,0 +1,270 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__author__ = 'Michał Leśniewski'
+__contact__ = 'm.lesniewski@samsung.com'
+__version__ = '0.2.1'
+
+import argparse
+import logging
+import os
+import subprocess
+import tempfile
+
+DIR = os.path.dirname(os.path.realpath(__file__))
+
+def __find_python_binary(directory, pyname):
+    res = os.path.join(directory, pyname)
+    if os.path.isfile(res):
+        with open(res, 'r') as f:
+            if f.read(2) == '#!':
+                return res
+    return pyname
+
+ADBIPP = __find_python_binary(DIR, 'adbipp')
+GCC = (os.getenv('ADBICC') 
+       or os.getenv('GCC') 
+       or os.getenv('CC') 
+       or 'arm-linux-androideabi-gcc')
+LD = os.getenv('LD') or GCC
+INJ = __find_python_binary(DIR, 'inj')
+
+LDS = os.path.join(DIR, 'inject.x')
+ISYSTEM = os.path.join(DIR, 'include')
+BASEINC = os.path.join(ISYSTEM, 'inj.h')
+
+def call(cmd):
+    try:
+        program = os.path.basename(cmd[0])
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        out, err = process.communicate()
+        lines = [line for line in out.split('\n') if line.strip()] 
+        #print ' '.join(cmd)
+        if lines:
+            print '    ---- %s ----' % program
+            for line in lines:
+                print '    | ' + line
+            print '    ' + '-' * (len(program) + 10)
+
+        if process.returncode:
+            print '%s returned %i' % (program, process.returncode)
+        return (process.returncode == 0)
+    except OSError, e:
+        print 'error launching %s: %s' % (cmd[0], e)
+        return False
+
+def preprocess(input, output, sysroot='/'): 
+    cmd = [
+        ADBIPP,
+        '--sysroot', sysroot,
+        input,
+        '-o', output
+        ]
+    return call(cmd)
+
+def compile(input, output, machine, features=[], optimize='s', thumb=False):
+    cmd = [
+        GCC,
+        # treat input as C source
+        '-x', 'c', 
+        # compile only
+        '-c',
+        # use C99 standard with gnu extensions
+        '-std=gnu99',
+        # generate debug information
+        '-ggdb3',
+        # do not scan standard directories for included files
+        #'-nostdinc',   
+        # but scan the script directory 
+        '-isystem', ISYSTEM,
+        # preinclude inj.h
+        '-include', BASEINC,
+        # create a position independent executable
+        '-fPIC',
+        # put all functions and data in separate sections so they can be removed if not used
+        '-ffunction-sections', '-fdata-sections',
+        # set optimization level
+        '-O' + str(optimize),
+        # set warning level
+        '-Wall', '-Wextra',
+        # disable warnings in naked functions
+        '-Wno-return-type', '-Wno-unused-parameter',
+        # disable warnings about unused functions
+        '-Wno-unused-function'
+    ]
+    
+    if machine == 'aarch64':
+        cmd.extend([
+            # set architecture 
+            '+'.join(['-march=armv8-a'] + features),
+            # Tiny code model, whole program within 1GB memory range.
+            # We can put program at random memory address.
+            # Without this flag code must be relocated/injected with 4KB alignment,
+            # this constraint is not supported by adbiserver nor IDK tools.
+            # We really need this flag for Aarch64!
+            '-mcmodel=tiny'
+        ])
+    elif machine == 'arm':
+        cmd.extend([
+            # set architecture 
+            '-march=armv7-a',
+            # allow interworking
+            '-mthumb-interwork',
+            # select instuction set
+            '-mthumb' if thumb else '-marm',
+            # do not rearange instructions in function prologues (for easier debugging)
+            '-mno-sched-prolog',
+            # do not maintain frame pointers
+            '-fomit-frame-pointer',
+            # do not use the ip register
+            '-ffixed-ip'
+        ])
+    else:
+        print 'Unsupported architecture: %s' % machine
+        return False
+
+    cmd.extend([
+        # output file
+        '-o', output,
+        # input file
+        input
+    ])
+
+    return call(cmd)
+
+def link(input, output):
+    cmd = [
+        LD,
+        # use linker script
+        '-T', LDS, #64 if machine == 'aarch64' else LDS,
+        # do not use standard libraries
+        '-nostdlib',
+        # remove unused sections
+        '-gc-sections', #'-print-gc-sections',
+        # output file
+        '-o', output,
+        # input
+        input,
+    ]
+    return call(cmd)
+
+def inj(input, output, binary, comment=None, library=None):
+    if not comment:
+        import getpass, datetime
+        now = datetime.datetime.now().strftime("on %Y-%m-%d at %H:%M")
+        user = getpass.getuser()
+        tool = os.path.basename(__file__) 
+        comment = 'Created by %s %s using %s %s.' % (user, now, tool, __version__) 
+    cmd = [
+        INJ,
+        # comment
+        '--comment', comment,
+        # output file
+        '-o', output
+    ]
+    if library: 
+        cmd += ['--library', library]
+    if binary:
+        cmd += ['--binary', binary]
+    cmd += [
+        # input file
+        input,
+    ]
+    return call(cmd)
+
+def main():
+    class Phase:
+        PREPROCESS = 0
+        COMPILE = 1
+        LINK = 2
+        INJECT = 3
+
+    parser = argparse.ArgumentParser(description='Compile ADBI scripts and create injectable files.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('--action', '-a', 
+                        choices='preprocess compile link injectable'.split(), default='injectable', 
+                        help='specifies action to perform (default: %(default)s)')
+    parser.add_argument('--output', '-o', type=str, default='', 
+                        help='specifies output file name')
+    parser.add_argument('--binary', type=str, default='', help='linked binary')
+    parser.add_argument('--library', '-l', type=str, default='', help='produce a library injectable')
+    parser.add_argument('--comment', type=str, default='', help='specify output file comment')
+    parser.add_argument('--input-type', '-i', choices='adbi c o io auto'.split(), default='auto', 
+                        help='specify input file type (default: %(default)s)')
+    parser.add_argument('--sysroot', type=str, default='.', metavar='dir', 
+                        help='use dir as the logical root directory for binaries')
+    parser.add_argument('--gcc', '--compiler', '--cc', type=str, default='', help='path to GCC')
+    parser.add_argument('--features', '--feature-modificators', nargs='*', type=str, default=[],
+                        help='Enable/disable GCC architecture features. Works only for AArch64')
+    parser.add_argument('input', type=str, help='input file name')
+        
+    args = parser.parse_args()
+
+    if args.gcc:
+        global GCC 
+        global LD
+        GCC = args.gcc
+        LD  = args.gcc
+    
+    machine = os.popen(GCC + ' -dumpmachine').read().split('-')[0]
+
+    if args.binary and args.library:
+        parser.error('Cannot use library and binary simultaneously.')
+
+    # Determine final output file name
+    if args.output:
+        output = args.output
+    else:
+        base = os.path.splitext(args.input)[0]
+        ext = {
+        "preprocess": '.c',
+        "compile": ".o",
+        "link": ".io",
+        "injectable": ".inj"
+        }[args.action] 
+        output = base + ext
+
+    # Determine start phase   
+    input_ext = os.path.splitext(args.input)[1] if args.input_type == 'auto' else '.' + args.input_type
+    start_phase = {
+        '.adbi': Phase.PREPROCESS,
+        '.c': Phase.COMPILE,
+        '.o': Phase.LINK,
+        '.io': Phase.INJECT
+        }.get(input_ext, Phase.INJECT)
+
+    # Determine end phase
+    end_phase = {
+        'preprocess': Phase.PREPROCESS,
+        'compile': Phase.COMPILE,
+        'link': Phase.LINK,
+        'injectable': Phase.INJECT
+    }[args.action]
+
+    # Perform phases
+    next_input = args.input
+    for phase in range(start_phase, end_phase + 1):
+        if phase == end_phase:
+            out_file = output
+        else:
+            tmp_file = tempfile.NamedTemporaryFile(delete=False)
+            out_file = tmp_file.name
+        
+        if phase == Phase.PREPROCESS:
+            if not preprocess(next_input, out_file, sysroot=args.sysroot): 
+                raise SystemExit('Preprocessing phase failed.')
+        elif phase == Phase.COMPILE: 
+            if not compile(next_input, out_file, machine, args.features): 
+                raise SystemExit('Compilation phase failed.')
+        elif phase == Phase.LINK: 
+            if not link(next_input, out_file): 
+                raise SystemExit('Linking phase failed.')
+        elif phase == Phase.INJECT:
+            if not inj(next_input, out_file, args.binary, args.comment, args.library): 
+                raise SystemExit('Injectable conversion phase failed.')
+
+        next_input = out_file
+
+main()
+

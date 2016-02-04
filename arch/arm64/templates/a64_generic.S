@@ -1,0 +1,14 @@
+#include "a64_handler.h"
+
+HANDLER_BEGIN
+
+HANDLER_OOL_BEGIN
+
+tf_insn:
+	nop;
+
+	HANDLER_OOL_RETURN()
+
+HANDLER_OOL_END
+
+HANDLER_END

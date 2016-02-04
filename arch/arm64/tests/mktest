@@ -1,0 +1,32 @@
+#!/usr/bin/env python
+
+import bisect
+import sys
+import subprocess
+import struct
+import os
+import glob
+
+from common import TemplateTest
+
+_modules = [os.path.basename(f)[:-3] for f in glob.glob(os.path.dirname(__file__)+"/*.py")]
+for test in _modules:
+    __import__(test)
+
+if __name__ == '__main__':
+    adbifiles = []
+    baseclassname = TemplateTest.__name__
+    with open('adbitest.adbi', 'w') as adbi:
+        adbi.write('\n'.join(['#binary adbitest','INIT() {}','']))
+        for cls in vars()[baseclassname].__subclasses__():
+            name = cls.__name__
+            print name
+            tst = cls()
+        
+        
+            if name.startswith('test_'):
+                name = name[5:]
+        
+            with open(name + '.S', 'w') as asm:
+                tst.generate(asm, adbi)
+        

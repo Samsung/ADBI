@@ -1,0 +1,173 @@
+DYNAMIC LINKER
+==============
+
+Processes traced by adbiserver may use the dynamic linker.  This means that they don't contain all the required code by
+themselves, but instead they use the implementation provided by one or more libraries.  The dynamic linker is 
+responsible for loading the required libraries into the process address space and linking their symbols (functions and 
+objects).  After that, the functions and objects from the library are accessible from the program just like regular 
+symbols, defined by the executable itself.  Dynamic libraries are usually loaded immediately after process startup.  
+The required libraries used by a program are defined in the executable file itself.  These libraries are loaded early 
+in the initialization stage of the program.  After all linking is completed, the regular program initialization is 
+run (global object constructors) and the main function is called.  In this case using dynamic libraries requires no 
+additional effort from the developer.  
+
+It is also possible to load a library at a later point, fully dynamically using dlopen and dlsym.  This approach is much
+more difficult, the developer must be aware what libraries need to be loaded and get the addresses of the symbols first
+before using them.  
+
+To support tracing code inside such dynamic libraries, adbiserver must be aware what libraries are currently loaded into
+a process and it must detect when a new library is dynamically loaded or unloaded.  This file describes how this is 
+achieved.
+
+
+Dynamic linking overview
+------------------------
+
+Each time a new program is started (through execve), the basic initialization of the new process memory is done by the 
+loader in the Linux kernel.  The loader only reads the ELF program header and section headers.  Sections are merged and 
+put into segments in the program memory space.  The code and data (.text and .data sections) of the program are loaded 
+into the process memory without any modifications.  After loading, it looks if there is an interpreter entry in the ELF
+header (.interp section).  If there is no such section, the image requires no dynamic linking -- the kernel simply 
+starts the process by setting the program counter to the entry function address.  If there is an .interp section, it 
+contains a string with the path to the dynamic linker.  The dynamic linker file is an ELF binary too, so the kernel 
+loads it into the to a convenient memory address.  
+
+The dynamic linker can be loaded at any address, not necessarily the one that is specified in the ELF file.  The kernel 
+simply takes the linker image and loads it to a different address without changing anything in the data.  After that, 
+it starts the process by setting the program counter to the linker's entry address. 
+
+Note that the linker may be loaded at any address, so the linker's code must be position independent (PIC).  Usually 
+linkers run special bootstrap code just at the beginning, when they are launched.  This bootstrap code finds out where
+the linker binary was loaded and performs dynamic linking of itself (yes, the dynamic linker links itself dynamically 
+at startup!).  After this initialization finishes, all other code in the linker usually runs like usual.  
+
+Note that on Android, dynamic linking is simplified.  The dynamic linker binary is always loaded at the same address 
+(usually 0xb0000000).  This address is set during the Android build and its value is set so that the linker's address
+does not conflict with any possible executable.  This means that the linker does not need to dynamic link itself. 
+
+After the linker initializes itself, it takes care of the main executable ELF binary.  It analyzes the required dynamic
+libraries, loads them up, links their symbols and relocates their addresses.  After this, it simply launches the main
+executable's entry point.
+
+
+How does adbiserver retrieve information about loaded libraries?
+----------------------------------------------------------------
+
+It's important to note that the linker loads the libraries into the process by simply mapping parts of the binaries into
+the process memory (using the mmap system call).  The Linux kernel is fully aware what part of which file is mapped at 
+which address.  Moreover, the information about mappings can be obtained externally by simply looking at the maps file
+of the process in the proc file system.  For example, the memory mappings of process 1234 can be retrieved by reading 
+/proc/1234/maps.  adbiserver reads and parses such files whenever it needs to obtain information about the process 
+memory.  
+
+
+When does adbiserver read /proc/PID/maps?
+-----------------------------------------
+
+During normal process operation, the memory mappings do not change, so there is no need to parse /proc/PID/mapps after 
+they have been already retrieved unless some special events happen.  adbiserver scans the maps only in the following
+situations:
+    *   When it spawns a new child process or attaches to an untraced process, because it does not know anything about 
+        the memory of the process yet.
+    *   After a process successfully calls exec, because the whole memory address space is reorganized by Linux after a
+        the exec system call. 
+    *   When it detects linker activity (loading or unloading a library dynamically).
+
+
+How does adbiserver detect linker activity?
+-------------------------------------------
+
+Linkers on Unix systems contain a special marker function.  The function is empty (it returns immediately, without 
+returning a value).  The function is guaranteed to not be inlined and to be called after a library is loaded and 
+unloaded.  During normal runs, running the function has no effect.  The function was introduced only to simplify linker
+activity detection.  A debugger can insert a breakpoint at the address of the function.  Each time the breakpoint gets 
+hit, the debugger should rescan the memory space of the process searching for changes.  All popular debuggers use this 
+approach to detect linker activity, adbiserver is no different.
+
+
+How does adbiserver know the address of the linker marker function
+------------------------------------------------------------------
+
+The linker marker function can be found in several ways.  First of all, if the linker binary is not stripped, it 
+contains a symbol table (the ELF symbol table in the .symtab section, not to be confused with symbols described by the
+DWARF information in the .debug_* sections).  The marker function has a predictable name, usually one of: 
+    * r_debug_state
+    * _r_debug_state
+    * _dl_debug_state
+    * rtld_db_dlactivity
+    * __dl_rtld_db_dlactivity   (this one is used in the Android linker)
+    * _rtld_debug_state
+
+The list above comes from the gdb sources (solib-svr4.c) -- these are the symbols gdb looks for when trying to find the 
+linker breakpoint.  Each symbol has an address assigned, so finding a symbol which matches one of the names above would 
+allow to find its address too.  Unfortunately, the binaries on Android are stripped to the bare minimum.  No symbols are
+available, so a different approach is necessary.  
+
+All executables, which require dynamic linking contain a special .dynamic section.  This section is never stripped 
+from the executable.  It contains information necessary to perform dynamic linking.  It contains pairs of values -- 
+type and value.  Among these pairs there is one or more DT_NEEDED type entry, which specifies which libraries must be
+loaded dynamically.  The list also contains one entry with type DT_DEBUG.  Its value is a 4-byte address, which is a 
+pointer to a special r_debug structure defined in linker.h as follows:
+
+    struct r_debug {
+        int32_t r_version;          /* version, always one */
+        struct link_map * r_map;    /* list of loaded libraries */
+        void (*r_brk)(void);        /* marker function address */
+        int32_t r_state;            /* zero if the state of r_map is consistent */
+        uintptr_t r_ldbase;         /* linker base address (this is where the linker was loaded after relocation) */
+    };
+
+The structure above contains information useful for debuggers.  The structure was first introduced in SVR4 
+specification and has been widely adopted.  Currently all mayor unix-like systems and libc implementations support it
+(glibc, ulibc and bionic).  To us, the most important field is r_brk, because this is the address of the linker marker
+function.  
+
+It must be noted, that the value of DT_DEBUG is initially always set to zero (also in the ELF file on disk).  During 
+executable loading the .dynmamic section is mapped into memory (by the kernel).  The .dynamic section appears only in 
+the executables (not libraries), which are always loaded at known address, specified in the ELF itself.  This means, 
+that we can simply parse the ELF file by ourselves, find the load address of the .dynamic section and the offset of 
+the DT_DEBUG entry value.  As a result, we get a pointer to the DT_DEBUG value (which is in turn a pointer to r_debug). 
+
+Just after load up, the DT_DEBUG value is still NULL (because that's the value stored on disk in the ELF file).  It is 
+assigned a meaningful by the dynamic linker.  After the linker initializes itself, it looks at the .dynamic section of 
+the executable to find out the names of the required libraries.  This is done by iterating over the DT_* entries.  If it
+encounters the DT_DEBUG entry, it patches the value, setting it to a pointer to its own, internal r_debug structure. 
+
+After the linker finishes initialization, the DT_DEBUG value can be treated like a pointer and dereferenced.  
+
+Although it looks like a dirty hack, the described approach is typical.  It is also used by other tools, especially GDB.
+The r_debug structure is poorly documented, I'm not even sure if it's a standard or just a widely adopted convention. 
+Still, I don't think it will be changed anytime soon.  
+
+It should also be noted that GDB depends on the presence of this structure heavily.  It uses it not only to find out the 
+address of the marker function, but also to find the loaded libraries (using r_map).  This works well on Intel, but 
+there are slight differences between dynamic linker implementations in glibc and bionic.  These differences sometimes 
+confuse GDB and it discovers the libraries incorrectly.  On Android GDB sometimes detects loading and unloading of 
+libraries correctly, but the load base addresses are incorrect.
+
+
+Linker marker hack on Android
+-----------------------------
+
+As said before, the dynamic linker binary on Android is always loaded at the same address.  This means, that any 
+process, which uses the dynamic linker, has the linker binary loaded at the same address.  The r_debug structure in the
+linker is a global variable, so it's located in the .data section.  After load up, it will be always at the same address
+as well.  For this reason, we can find linker marker address just once and assume it is the same in all other processes. 
+
+adbiserver is linked dynamically, so it also has the linker binary loaded.  The first time it needs to insert a 
+breakpoint in another processes linker marker function, it looks at its own ELF binary, finds the .dynamic section, 
+finds the DT_DEBUG value, dereferences it and finds the address of its own linker marker function.  Then it assumes that
+the other process has the linker marker function loaded at the same address.
+
+This approach is actually a hack and it works only on Android.  It is very possible that a future version of Android 
+will have a relocatable dynamic linker.  In this case it will be loaded at a different address in each process.  I think
+loading the dynamic linker at a constant address was part of the "prelink everything" strategy from early versions of 
+Android.  In early Android versions, most libraries were prelinked -- they were always loaded at the same address.  
+Knowing the runtime address of a dynamic library during building allowed to evaluate the addresses of all functions in 
+the library at build time as well.  As a result, dynamic libraries could be just loaded into the memory space, without
+any actual dynamic linking of symbols.  Of course, the addresses of libraries were chosen to not conflict.  This allowed
+to speed up and simplify dynamic linking drastically.  In later Android versions this approach was dropped -- now 
+libraries can be loaded at random addresses just like in typical Linux configurations (with address space layout
+randomization enabled).  It looks like the last thing that remained "prelinked" is the dynamic linker. 
+
+

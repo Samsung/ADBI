@@ -1,0 +1,25 @@
+/* This injectable inserts tracepoints into the open and creat functions in libc.  Both functions are written in 
+ * assembly, so in this case we need to capture the arguments manually.  
+ */
+
+#include <handler.h>
+
+#binary ./libc.so
+
+IMPORT(adbi_printf, void, const char * fmt, ...);
+
+/* open */
+#handler open
+    char * pathname = (char *) get_reg(0);
+    adbi_printf("opening %s\n", pathname);
+#endhandler
+
+/* creat */
+#handler creat
+    char * pathname = (char *) get_reg(0);
+    adbi_printf("creating %s\n", pathname);
+#endhandler
+
+INIT() {
+    /* nothing to initialize */
+}

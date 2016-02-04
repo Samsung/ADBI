@@ -1,0 +1,933 @@
+<!DOCTYPE html PUBLIC "-//W4C//DTD HTML 4.0 Transitional//EN">
+<html><head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <title>ADBI - Documentation</title>
+    <meta id="Company" content="Samsung Electronics Poland">
+    <link href="ADBI%20-%20Documentation_files/none.html" type="text/css" rel="stylesheet">
+    <style type="text/css">
+        <!--
+        @page { size: 21cm 29.7cm; margin-left: 2.5cm; margin-right: 2.5cm; margin-top: 2.5cm; margin-bottom: 1.25cm }
+        @page:first { }
+        ul {
+            list-style-type: none;
+        }
+        ol, ul { 
+            padding-left: 0.6cm;
+        }
+        h1 {
+            margin-top: 0.85cm;
+            margin-bottom: 0cm;
+            direction: ltr;
+            color: #365f91;
+            page-break-inside: avoid;
+            widows: 2;
+            orphans: 2;
+            page-break-after: avoid;
+        }
+        h1.western {
+            font-family: "Cambria", serif;
+            font-size: 14pt;
+            font-weight: bold
+        }
+         h2 {
+            margin-top: 0.35cm;
+            margin-bottom: 0cm;
+            direction: ltr;
+            color: #4f81bd;
+            page-break-inside: avoid;
+            widows: 2;
+            orphans: 2;
+            page-break-after: avoid
+        }
+        h2.western {
+            font-family: "Cambria", serif;
+            font-size: 13pt;
+            font-weight: bold
+        }
+        h3 {
+            margin-top: 0.35cm;
+            margin-bottom: 0cm;
+            direction: ltr;
+            color: #4f81bd;
+            page-break-inside: avoid;
+            widows: 2;
+            orphans: 2;
+            page-break-after: avoid
+        }
+        h3.western {
+            font-family: "Cambria", serif;
+            font-size: 11pt;
+            font-weight: italic
+        }
+        h4 {
+            direction: ltr;
+            color: #4f81bd;
+            page-break-inside: avoid;
+            widows: 2;
+            orphans: 2;
+            page-break-after: avoid
+        }
+        a:link {
+            color: #4f81bd;
+            so-language: zxx;
+            text-decoration: underline
+        }
+        a:visited {
+            color: #4f81bd;
+            so-language: zxx;
+            text-decoration: underline
+        }
+        pre {
+            border: 0 hidden #888 !important;
+            border-image: none;
+            border-style: hidden;
+            border-width: 0px;
+        }
+        pre {
+            display: inline-block;
+            font-family: "Ubuntu Mono","Droid Sans Mono",Inconsolata,"Courier New",monospace;
+            font-style: normal;
+            font-variant: normal;
+            font-weight: normal;
+            word-wrap: break-word;
+            background: none repeat scroll 0 0 #F3F5F7;
+            border-color: #AAAAAA #AAAAAA #CCCCCC;
+            letter-spacing: normal;
+            max-width: 97%;
+            min-width: 50%;
+            overflow: auto;
+            text-transform: none;
+            white-space: pre-wrap;
+            word-spacing: normal;
+            padding: 0.5em 0.1em 0.5em 1em;
+        }
+        body {
+            counter-reset: chapter;
+        }
+        h1:before {
+            content: counter(chapter) " ";
+            counter-increment: chapter;
+        }
+        h1 {
+            counter-reset: section;
+        }
+        h2:before {
+            content: counter(chapter) "." counter(section) " ";
+            counter-increment: section;
+        }
+        h2 {
+            counter-reset: subsection;
+        }
+        h3:before {
+            content: counter(chapter) "." counter(section) "." counter(subsection) " ";
+            counter-increment: subsection;
+        }
+        -->
+    </style>
+<link href="ADBI%20-%20Documentation_files/prettify.css" type="text/css" rel="stylesheet"></head>
+<body dir="LTR" lang="en-EN" link="#0000ff" text="#000000" vlink="#800000">
+<ol>
+    <li><a href="#intro">Introduction</a>
+        <ol>
+            <li><a href="#install">Insallation</a></li>
+            <li><a href="#config">Configuration</a></li>
+            <li><a href="#content">Package content</a></li>
+        </ol>
+    </li>
+    <li><a href="#usage">ADBI Usage</a>
+        <ol>	
+            <li><a href="#usage_autoadbi">Auto ADBI</a>
+				<ol>
+            		<li><a href="#usage_autoadbi_action">--action, -a</a></li>
+            		<li><a href="#usage_autoadbi_template">--template, -t</a></li>
+            		<li><a href="#usage_autoadbi_filter">--filter, -f</a></li>
+				</ol>
+			</li>
+            <li><a href="#usage_inj">Making injectables</a></li>
+            <li><a href="#usage_adbiserver">ADBI server</a></li>
+            <li><a href="#usage_adbiclient">ADBI client</a></li>
+		</ol>
+    </li>
+    <li><a href="#inj">Writing injectable source code</a>
+        <ol>
+            <li><a href="#inj_adbipp">ADBI Preprocessor</a>
+                <ol>
+                    <li><a href="#inj_adbipp_binary">#binary</a></li>
+                    <li><a href="#inj_adbipp_handler">#handler and #endhandler</a></li>
+                    <li><a href="#inj_adbipp_gettype">#gettype</a></li>
+                    <li><a href="#inj_adbipp_getvar">#getvar</a></li>
+                </ol>
+            </li>
+            <li><a href="#inj_import">Importing functions</a></li>
+            <li><a href="#inj_export">Exporting functions</a></li>
+            <li><a href="#inj_init">Init handler</a></li>
+            <li><a href="#inj_exit">Exit handler</a></li>
+            <li><a href="#inj_newprocess">New process handler</a></li>
+            <li><a href="#inj_newthread">New thread handler</a></li>
+            <li><a href="#inj_handler">HANDLER macro</a></li>
+            <li><a href="#inj_noadbipp">Creating injectable without ADBI preprocessor</a></li>
+		</ol>
+    </li><li><a href="#examples">Examples</a></li>
+		<ol>
+			<li><a href="#examples_binder">Tracking communication with binder driver</a></li>
+            <li><a href="#examples_snprintf">snprintf() implementation as library injectable</a></li>
+		</ol>
+    
+</ol>
+<hr>
+<h1 class="western"><a id="intro"></a>Introduction</h1>
+<p>ADBI (Android Dynamic Binary Instrumentation) is a framework, 
+dedicated for debuging and tracing Android native applicatioins and 
+libraries. ADBI can attach to any process at runtime and inject custom 
+code.</p>
+
+<h2 class="western"><a id="install"></a>Installation</h2>
+<p>ADBI v3.0 is avaliable at ASDD Team Ubuntu Repository. If you have 
+already configured ASDD repo in your Ubuntu, start from step 3.</p>
+<ol>
+    <li>
+        <p>Add repository file to APT <tt>sources.list.d</tt> directory</p>
+        <pre class="terminal">sudo wget -P /etc/apt/sources.list.d/ http://asdd.sprc.samsung.pl/ubuntu/asdd.list</pre>    
+    </li>
+    <li>
+        <p>Add ASDD Team Signing Key to APT keyring</p>
+        <pre class="terminal">wget -O - http://asdd.sprc.samsung.pl/ubuntu/asdd.pub | sudo apt-key add -</pre>
+    </li>
+    <li>
+        <p>Update APT package list</p>
+        <pre class="terminal">sudo apt-get update</pre>
+    </li>
+    <li>
+        <p>Install ADBI package</p>
+        <pre class="terminal">sudo apt-get install adbi</pre>
+    </li>
+</ol>
+<p>And that's all. Now you have installed ADBi on your system.</p>
+
+<h2 class="western"><a id="config"></a>Configuration</h2>
+<p>To use adbi ensure that <tt>ADBICC</tt> environment variable is properly set. This variable should contain path to gcc compiler that is to be used with ADBI tool.</p>
+<!--<pre class="terminal">export ADBICC="/opt/toolchains/arm-2009q3/bin/arm-none-linux-gnueabi-gcc"</pre>-->   
+<p>You can use sample toolchain provided with ADBI by <tt>adbi-toolchain</tt> package. Package shoud be installed with ADBI package (if not, type: <tt>sudo apt-get install adbi-toolchain</tt> to install it). To use toolchain provided by ADBI:</p>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="kwd">export</span><span class="pln"> ADBICC</span><span class="pun">=</span><span class="str">"/usr/share/adbi/toolchain/bin/arm-linux-androideabi-gcc"</span></pre>
+<p>If you dont want to set this variable everytime when you use ADBI, thee good idea is to add above line to your <tt>~/.bash_profile</tt>. This change will take effect after logout</p>
+
+<h2 class="western"><a id="content"></a>Package Content</h2>
+<p>ADBI files are placed in <tt>/usr/share/adbi/</tt> directory. Package contains:</p>
+<ul>
+    <li><b>adbiclient</b> - user interface application for <tt>adbiserver</tt>.</li>
+    <ul>
+        <li><tt>adbi3</tt> - user interface application binary.</li>
+    </ul>
+    <li><b>idk</b> - ADBI Injection Developent Kit tools.</li>
+    <ul>
+        <li><tt>adbipp</tt>      - ADBI pre-processor, resolves fuction/variable references from <tt>*.adbi</tt> files and produce C file.</li>
+        <li><tt>autoadbi</tt>    - generates *.adbi files using given binary file.</li>
+        <li><tt>mkinj</tt>       - ADBI compiler wrapper, makes injectable from <tt>*.adbi</tt> files and preprocessed files (by <tt>adipp</tt>).</li>
+        <li><tt>readinj</tt>     - display information about injectable files (<tt>*.inj</tt>).</li>
+    </ul>
+    <li><b>target</b> - files compiled for device, ready to copy to device and use.
+    <ul>
+        <li><tt>adbiserver</tt>  - ADBI server, makes all this magic on the device.</li>
+        <li><tt>adbilog</tt>     - ADBI log, utility for gathering logs produced using <tt>adbi_printf</tt> function.</li>
+    </ul>
+</li></ul>
+
+<hr>
+<h1 class="western"><a id="usage"></a>ADBI Usage</h1>
+<p>Typical usage of ADBI tool can be divided into three stages:
+</p><ol>
+	<li>Write or generate source code.</li>
+	<li>Produce injectable files.</li> 
+	<li>Inject compiled files on target device.</li>
+</ol>
+<p>Injectable source is C language code with additional preprocessor 
+macros. This macros gives access to internal data of binary that will be
+ traced. Source code is stored in *.adbi files, each file can contain 
+injectable code for only one binary file (executable or shared library).
+ If you want to track when given procedure starts and returns it is 
+possible to generate *.adbi files automatically. It is also possible to 
+track when execution return to process after syscall. More about *.adbi 
+files automatic generation can be found in <a href="#usage_autoadbi">Auto ADBI</a> section.</p>
+<p>Compiled source code is stored in scecial injectable files (*.inj 
+files). One injectable file is produced from one *.adbi file. Injectable
+ file is ready to use by ADBI server.</p>
+<p>Normally, the flow how injectable file is created is as follows:</p>
+<p><tt>file.adbi  ----preprocessing----&gt; file.c ----compilation----&gt; file.inj</tt></p>
+<p>Where:
+</p><dl>
+	<dt><tt>file.adbi</tt></dt><dd>C file with additional ADBI preprocessor macros. Macros will be expanded using unstripped binaries with DWARF information.</dd>
+    <dt><tt>file.c</tt></dt><dd>C file containing source code of handlers and all needed addresses in traced binary.</dd>
+	<dt><tt>file.inj</tt></dt><dd>Binary file ready to inject by ADBI server.</dd>
+	<dt><tt>preprocessing</tt></dt><dd>Operation that resolves all ADBI 
+preprocessor macros (function entry, local/global vartables etc.). This 
+stage needs unstripped version of binary that will be traced. For 
+Android such binaries can be found in <tt>./out/target/product/&lt;model name&gt;/symbols</tt> directory. Unstripped binarieas for particular model can be also found in DEBUG_SYMBOLS package on QuickBuild.</dd>
+    <li><tt>compilation</tt><dd>Source code is compiled and linked into injectable file (*.inj).</dd>
+</li></dl>
+All above operations (preprocessing and compilation) are made by <tt>mkinj</tt> tool from IDK tools. By default <tt>mkinj</tt> tool makes *.inj file directly from *.adbi file.<p></p>
+<p>IDK contains 4 tools:</p>
+<dl>
+	<dt>adbipp</dt><dd>ADBI preprocessor, resolves ADBI macros using DWARF debug information and ELF symbols tables from unstripped binaries.</dd>
+	<dt>autoadbi</dt><dd>Source code generator for ADBI. Tool is described in section <a href="#usage_autoadbi">Auto ADBI</a>.</dd>
+	<dt>mkinj</dt><dd>Main tool, compiler and ADBI preprocessor wrapper. 
+Makes injectable files (*.inj) from ADBI files (*.adbi). Tool is 
+described in section <a href="#usabe_inj">Making injectables</a>.</dd>
+	<dt>readinj</dt><dd>Displays info about injectable files.</dd>
+</dl>
+<h2 class="western"><a id="usage_autoadbi"></a>Auto ADBI</h2>
+<p>It is possible to generate injectables using <tt>autoadbi</tt> to track begin and end of procedures and single instructions. Generated handlers can pass some information to <tt>adbilog</tt>
+ or to Android Systrace infrastructure. Autoadbi generates handler 
+source code in ADBI format (*.adbi files), that can be compiled by <tt>mkinj</tt>
+ tool. Autoadbi provides possibility to filter generated handlers only 
+for particular routines and can disassembly binary files. Next sections 
+contains description of all Autoadbi parameters.</p>
+<p>To get desctiption of all Autoadbi options use man:
+</p><pre class="terminal">man autoadbi</pre><p></p>
+<h3 class="western"><a id="usage_autoadbi_action"></a><tt>--action, -a</tt></h3>
+<p>This is mandatory parameter that tells Autoadbi which action to perform. List of avaliable actions is presented below.
+</p><dl>
+	<dt>fns</dt><dd>Create handlers at the beginning and at the end of all 
+rutines in given binary file. If available handler will write all 
+parameters that traced routine was called. Output can be limited only to
+ symbols given in pattern file (file passed in <tt>--filter</tt> argument).</dd>
+	<dt>insn</dt><dd>This action finds all occurrences of given type of 
+instruction and creates handler at this instruction and at next one. 
+Handler writes address and assembler mnemonic of traced instruction. By 
+default traced is <tt>svc</tt> instruction, to track begin of syscalls 
+and moment when execution returns back to process. User can track any of
+ ARM instruction, traced instrtuction can be set using <tt>--track-instruction</tt> parameter. Output can be limited only for instructions inside symbols given in pattern file (file passed in <tt>--filter</tt> argument).</dd>
+	<dt>dasm</dt><dd>Display disassembled content of binary executable sections. Format is similar to objdump disassembler format.</dd>
+	<dt>dasm_all</dt><dd>Display disassembled content of all sections. Format is simmilar to objdump disassembler format.</dd>
+	<dt>dwarf_dasm</dt><dd>Display dissassembled content of binary 
+executable sections. But use only DWARF debug information. Proedures 
+written in assebmbly language will not be displayed.</dd>
+</dl>
+<p></p>
+<h3 class="western"><a id="usage_autoadbi_template"></a><tt>--template, -t</tt></h3>
+<p>For <tt>fns</tt> and <tt>insn</tt> actions one have to provide 
+template, which informs Autoadbi where handlers should pass information 
+about tracepoint hits. Alailable templates are listed below.
+</p><dl>
+	<dt>adbi_printf</dt><dd>Send all tracing information to <tt>adbilog</tt>.</dd>
+	<dt>systrace</dt><dd>Send all tracing information to Android Systrace infrastructure. Generated code opens <tt>/d/tracing/trace_marker</tt> file at loading and writes there on every tracepoint hit. <font color="red">Note:</font> Generated code does not start Systrace tracing. If you want to read data using trace pipe (<tt>/d/tracing/trace_pipe</tt> file) you shoud enable tracing manually by writing 1 to <tt>/d/tracing/tracing_on</tt> file</dd>
+</dl>
+<p></p>
+<h3 class="western"><a id="usage_autoadbi_filter"></a><tt>--filter, -f</tt></h3>
+<p>By default Autoadbi generates handlers for every procedure (for <tt>fns</tt> action) or for every instruction type (for <tt>insn</tt>)
+ in given binary file. In most cases there is no need to generate 
+handlers for all procedures, but only for few. Therefore Autoadbi 
+provides procedure filtering to limit generated handlers only to that 
+which names matches given list of patterns.</p>
+<p>Pattern list is a file containig regex patterns line by line. Handler
+ will be generated if and only if it is inside procedure which name 
+matches at least one line in patterns file.</p>
+<h2 class="western"><a id="usage_inj"></a>Making Injectables</h2>
+<p>Injectable are made using <tt>mkinj</tt> tool provided with ADBi. 
+Tool is a wrapper that do all needed job to produce injectable (*.inj) 
+from ADBI file (*.adbi). Injectables are made in 4 stages:
+</p><ol>
+	<li>Invoke ADBI preprocessor (<tt>adbipp</tt>) to resolve all ADBI macros.</li>
+	<li>Invoke GCC to compile source file</li>
+	<li>Invoke GCC to link binary produced by last step.</li>
+	<li>Convert compiled binary file to injectable format (*.inj file).</li>
+</ol>
+ADBI preprocessor needs unstripped version of binary that will be 
+traced. Therefore if you don't have unstripped binary you can't use ADBI
+ preprocessor to extract debug information. It is possible to compile 
+injectable code without any binary file, it is described in <a href="#raw">Raw handlers</a> section. To prduce injectable form ADBI file simly type in terminal:
+<pre class="terminal">mkinj --sysroot /path/to/symbols/ file.adbi</pre><p></p>
+<h2 class="western"><a id="usage_adbiserver"></a>ADBI server</h2>
+<p>To run ADBI it is necessary to copy <tt>adbiserver</tt> and <tt>adbiclient</tt> files to the device. To do that, connect your device to PC and copy files via <tt>adb</tt>. Those files can be found in ADBI <tt>target</tt> directory (<tt>/usr/share/adbi/target</tt>). Type:</p>
+<pre class="terminal">adb push "/usr/share/adbi/target/adbiserver" /data/
+adb push "/usr/share/adbi/terget/adbilog" /data/</pre>
+<p><tt>adbiserver</tt> (ADBI server) is a server that runs on target 
+device. It can control, modify and inject code dynamically into running 
+processes. <tt>adbilog</tt> (ADBI logger) is application that prints to standard output logs written by <tt>adbi_printf()</tt> function from inside an injected handler. ADBI logger is useful only if you are using <tt>adbi_printf()</tt> in handler code. ADBI server and logger can be launched using <tt>adb</tt>. </p>
+<p>If those files are in the device You shoud forward device's port 9999
+ to local port 9999. ADBI client uses this port to connect to the server
+ running on device. Type:</p>
+<pre class="terminal">adb forward tcp:9999 tcp:9999</pre>
+<p><font color="red">Note:</font> On some devices with SELinux, there is need to turn off SELinux enforcement. Type:
+</p><pre class="terminal">$ adb shell
+# su
+# setenforce 0</pre><p></p>
+<p>Run <tt>adbiserver</tt>:</p>
+<pre class="terminal">adb shell /data/adbiserver</pre>
+<p>After that ADBI client is able to connect to the running ADBI server. Run client typing: <tt>adbi3</tt> in terminal.</p>
+<p>If You use <tt>adbi_printf</tt> in your handlers code, run <tt>adbilog</tt> in other window:</p>
+<pre class="terminal">adb shell /data/adbilog</pre>
+
+<h2 class="western"><a id="usage_adbiclient"></a>ADBI client</h2>
+<p>ADBI client runs on PC with Linux or Windows and connects to ADBI 
+server that run on target device. How to run server is described in <a>ADBI server</a> section.  </p>
+<hr>
+<h1 class="western"><a id="inj"></a>Writing injectable source code</h1>
+<p>In this example I will describe how to write source code that can be 
+injectied into running processes. Source code is compiled using GCC. It 
+is possible to write fun Handlers are functions called when traced 
+instruction is to be executed. Taced proces starts to execute handler 
+code instead of traced instruction. The traced instruction is executed 
+after handler fished (this is called out of line execution). After that,
+ process continue execution of his original binary.</p>
+<p>All handlers for binary file must be placed in single compilation 
+unit (it is recommended to place it in single C file). Structure of this
+ file is very simple, it contains:
+</p><ol>
+    <li>ADBI include files</li>
+    <li>ADBI imports - it is possible to use functions implemented in other injectables</li>
+    <li>Handlers source code</li>
+    <li>Initial handler source code - this handler will be executed after finish attaching to process</li>
+    <li>Path to binary that is to be tracked</li>
+</ol>
+<p></p>
+<p>ADBI includes are files containing definitions of functions that are accesible by handler. All headers are placed in <tt>/path/to/adbi3/idk/includes</tt> directory. There are also functinos like open, read, write etc.</p>
+<h2 class="western"><a id="inj_adbipp"></a>ADBI Preprocessor</h2>
+<p>ADBI Preprocessor parses DWARF information included into binary file 
+and automatically replace directives with proper adresses. Binaries 
+should not be stripped.</p> 
+<p><font color="red">Note:</font> In current version of ADBI 
+preprocessor fully supports programs written in C language. C++ support 
+is limited and will be extended in future relases. If You want to write 
+handlers for C++ or have only stripped binaries it is still possible to 
+use ADBI. One must manually search for needed symbol adresses 
+deassembling the binary.</p>
+
+<h3 class="western"><a id="inj_adbipp_binary"></a>#binary</h3>
+<p>This macro informs preprocessor for what binary the injectable is 
+prepared for. Argument is path to binary on target device. Each file 
+must contain only one <tt>#binary</tt> directive.</p>
+<h5>Usage</h5> 
+    <p><tt>#binary &lt;/path/to/binary&gt;</tt></p>
+<h5>Examples</h5>
+<ol>
+    <li>Dalvik shared library:<br><pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#binary /system/lib/libdvm.so</span></pre></li>
+    <li>Input service shared library:<br><pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#binary /system/lib/libinputservice.so</span></pre></li>
+    <li>Binary file <tt>demo</tt> in <tt>/data</tt> directory:<br><pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#binary /data/demo</span></pre></li>
+</ol>
+
+<h3 class="western"><a id="inj_adbipp_handler"></a>#handler and #endhandler</h3>
+<p>Directive informs preprocessor for with instruction this handler is prepared for. All handler code must be beetween <tt>#handler</tt> and <tt>#endhandler</tt> directives. It is possible to pass address of instruction, procedure name or source location.</p>
+<h5>Usage</h5>
+<p><tt>
+    #handler (*address)|(function name)|(file_name:file_num)<br>
+    &lt;handler code&gt;<br>
+    #endhandler
+</tt></p>
+<h5>Examples</h5>
+<ol>
+    <li>Handler for instruction at address 0x13f104:<br>
+    <pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#handler *0x13f104</span><span class="pln">
+</span><span class="pun">...</span><span class="pln">
+</span><span class="com">#endhandler</span></pre>
+    </li>
+    <li>Handler for entry point to function open:<br>
+    <pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#handler open</span><span class="pln">
+</span><span class="pun">...</span><span class="pln">
+</span><span class="com">#endhandler</span></pre>
+    </li>
+    <li>Handler for instruction at line 45 in file demo.c:<br>
+    <pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#handler demo.c:45</span><span class="pln">
+</span><span class="pun">...</span><span class="pln">
+</span><span class="com">#endhandler</span></pre>
+    </li>
+</ol>
+
+<h3 class="western"><a id="inj_adbipp_gettype"></a>#gettype</h3>
+<p>Import type definition into handler.</p>
+<h5>Usage</h5>
+<p><tt>
+    #getvar &lt;type name&gt;
+</tt></p>
+<h5>Example</h5>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#handler open</span><span class="pln">
+    </span><span class="com">#gettype sockaddr</span><span class="pln">
+
+    </span><span class="kwd">struct</span><span class="pln"> sockaddr sa</span><span class="pun">;</span><span class="pln">
+    sa</span><span class="pun">.</span><span class="pln">sa_data</span><span class="pun">[</span><span class="lit">0</span><span class="pun">]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="str">'q'</span><span class="pun">;</span><span class="pln">
+
+    </span><span class="pun">....</span><span class="pln">
+
+</span><span class="com">#endhandler</span></pre>
+
+<h3 class="western"><a id="inj_adbipp_getvar"></a>#getvar</h3>
+<p>Imports value of given variable to handler function. Value is 
+assigned to automatic variable with the same name. Directive must be 
+inside handler code (beetween <tt>#handler</tt> and <tt>#endandler</tt> directives).</p>
+<h5>Usage</h5>
+<p><tt>
+    #getvar &lt;variable_name&gt;<br>
+</tt></p>
+<h5>Example</h5>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#handler demo.c:20</span><span class="pln">
+    </span><span class="com">#getvar num1</span><span class="pln">
+    </span><span class="com">#getvar num2</span><br><span class="pln">
+	adbi_printf</span><span class="pun">(</span><span class="str">"num1=%d num2=%d\n"</span><span class="pun">,</span><span class="pln"> num1</span><span class="pun">,</span><span class="pln"> num2</span><span class="pun">);</span><br><span class="pln">
+</span><span class="com">#endhandler</span></pre>
+<h2 class="western"><a id="inj_import"></a>Importing functions</h2>
+<p>ADBI provides mechanism to import and call functions exported by library injectables. Import directive has format:</p>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">IMPORT</span><span class="pun">(&lt;</span><span class="pln">function name</span><span class="pun">&gt;,</span><span class="pln"> </span><span class="pun">&lt;</span><span class="kwd">return</span><span class="pln"> value</span><span class="pun">&gt;,</span><span class="pln"> </span><span class="pun">[[</span><span class="pln">function attributes</span><span class="pun">],</span><span class="pln"> </span><span class="pun">...]);</span></pre>
+<p>After attaching to new process ADBI server injects some built-in injectables. One of built-in injectables contains <tt>adbi_printf()</tt> procedure. This function is used to send formatted string to <tt>adbilog</tt> tool. Syntax is the same as in standard C <tt>printf()</tt> function. To use it, add to file:</p>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">IMPORT</span><span class="pun">(</span><span class="pln">adbi_printf</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">void</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> fmt</span><span class="pun">,</span><span class="pln"> </span><span class="pun">...);</span></pre>
+<h2 class="western"><a id="inj_export"></a>Exporting functions</h2>
+<p>To make function visible and callable from other injectables user has to define function as <tt>GLOBAL</tt> and exlicitly export it using EXPORT macro. Example:
+</p><pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">GLOBAL </span><span class="typ">int</span><span class="pln"> example_function</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> param1</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln">buf</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+EXPORT</span><span class="pun">(</span><span class="pln">example_function</span><span class="pun">)</span></pre>
+To make exported symbols usable, injectable must be compiled as library injectable (using <tt>--library</tt> parameter) and loaded before attaching to process.
+<p></p>
+<h2 class="western"><a id="inj_init"></a>Init handler</h2>
+<p>Init handler defines code to be executed just after the injectable is
+ loaded.  When this function gets called, all imports are already 
+resolved. The function should return zero on successful initialization, 
+non-zero on error. If the initialization function fails, the injectable 
+is unloaded immediately.</p>
+<p>There are also zero, one and two parameter versions of injectable 
+initialization function where first is thread ID (TID) of current 
+running thread and second is process ID (PID). Usage:
+</p><ol>
+	<li>Zero parameter version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">INIT</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> initialization code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>One parameter (thread ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">INIT</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> tid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> initialization code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>Two parameter (thread ID and process ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">INIT</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> tid</span><span class="pun">,</span><span class="pln"> </span><span class="typ">int</span><span class="pln"> pid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> initialization code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+</ol>
+<font color="red">Note:</font> Init handler is mandatory for every 
+injectable. If there is no need for inintialization code user has to 
+define empty init handler:
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">INIT</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{}</span></pre>
+<p></p>
+<h2 class="western"><a id="inj_exit"></a>Exit handler</h2>
+<p>Exit handler define code to be executed just after detach from 
+process. Code will be run with all injections already unloaded, so after
+ this function no other handler will be executed in process. Please note
+ that this is not process exit handler but injection detach handler. 
+Code will not be executed on normal process exit. Code can be run in any
+ thread of detaching process.</p>
+<p>There is zero and one argument versions of function. First parameter 
+if used it is process ID (PID) of process being detached. Usage:
+</p><ol>
+	<li>Zero parameter version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">EXIT</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> detach handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>One parameter (process ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">EXIT</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> pid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> detach handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+</ol>
+Exit handler is optional and can be ommmited in injectable source code.
+<p></p>
+<h2 class="western"><a id="inj_newprocess"></a>New process handler</h2>
+<p>New process handler defines code to be executed just after the new 
+process was spawned by traced process. Function is executed by newly 
+created main thread of new process.</p>
+<p>There is zero and one argument versions of function. First parameter 
+if used it is PID of newly spawned process and also is thread ID (TID) 
+of its main thread. Usage:
+</p><ol>
+	<li>Zero parameter version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">NEW_PROCESS</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> </span><span class="kwd">new</span><span class="pln"> process handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>One parameter (process ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">NEW_PROCESS</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> pid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> </span><span class="kwd">new</span><span class="pln"> process handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+</ol>
+New process handler is optional and can be ommmited in injectable source code.
+<p></p>
+<h2 class="western"><a id="inj_newthread"></a>New thread handler</h2>
+<p>Defines code to be executed just after the new thread was created by 
+one of traced processes. Function is executed by newly created thread.</p>
+<p>There is two, one and zero argument versions of function. Like in 
+INIT handler first parameter is PID (TID) and second is TGID (PID) of 
+newly created thread. Usage:
+</p><ol>
+	<li>Zero parameter version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">NEW_THREAD</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> </span><span class="kwd">new</span><span class="pln"> thread handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>One parameter (process ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">NEW_THREAD</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> pid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> </span><span class="kwd">new</span><span class="pln"> thread handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+<li>Two parameter (thread ID and process ID) version:<br>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">NEW_THREAD</span><span class="pun">(</span><span class="typ">int</span><span class="pln"> tid</span><span class="pun">,</span><span class="pln"> </span><span class="typ">int</span><span class="pln"> pid</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln"> </span><span class="kwd">new</span><span class="pln"> thread handler code </span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre></li>
+</ol>
+New thread handler is optional and can be ommmited in injectable source code.
+<p></p>
+<h2 class="western"><a id="inj_handler"></a>HANDLER macro</h2>
+<p>HANDLER macro defines a handler function to be launched when 
+execution reaches the given address. The address should be a hex value, 8
+ chars long, representing the offset inside the binary file. Usage:
+</p><pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">HANDLER</span><span class="pun">(</span><span class="lit">00001000</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="pun">...</span><span class="pln">process the hit</span><span class="pun">...</span><span class="pln">
+</span><span class="pun">}</span></pre><br>
+Normally, handlers should be created using <tt>#handler</tt> ADBI preprocessor directive, because <tt>adbipp</tt>
+ automatically finds address and instruction kind of given location and 
+creates procer HANDLER macro definition. If unstripped binary is not 
+available or user manually found place to insert tracepoint one can 
+create raw handler using this macro instead of <tt>#handler</tt> directive.<p></p>
+<p><font color="red">Important: </font>If using HANDLER macro one should provide proper address of instruction and if traced instruction kind is Thumb address must be <b>odd</b>.</p>
+<h2 class="western"><a id="inj_noadbipp"></a>Creating injectables without ADBI preprocessor</h2>
+<p>User can ommit ADBI preprocessing stage of creating injectable files.
+ It is not recommended way to write injectable source code, however ADBI
+ preprocessor does not fully support C++ language and can not be useful 
+in very complicated cases.</p>
+<p>Witout <tt>adbipp</tt> all handlers code has to be placed inside <tt>HANDLER(address) { ... }</tt> macro. Address is an address of tracing instruction, where this handler will be executed.<br><font color="red">Note:</font>
+ Address should be odd if traced instruction belongs to Thumb or Thumb2 
+instruction set. And should be even if current instruction set is ARM.</p>
+<p>Example handler source code:</p>
+<pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">HANDLER</span><span class="pun">(</span><span class="lit">390</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> msg1</span><span class="pun">;</span><span class="pln">
+    __adbicpy</span><span class="pun">(&amp;</span><span class="pln">msg1</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">void</span><span class="pln"> </span><span class="pun">*)</span><span class="pln"> </span><span class="lit">0x0000b000</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">sizeof</span><span class="pun">(</span><span class="pln">msg1</span><span class="pun">));</span><span class="pln">
+    adbi_printf</span><span class="pun">(</span><span class="str">"msg1=%x"</span><span class="pun">,</span><span class="pln"> msg1</span><span class="pun">);</span><span class="pln">
+</span><span class="pun">}</span></pre>
+<p><tt>__adbicpy</tt> is an ADBI memcpy function, to perform data copy it is recommended to use this function.</p>
+<p>User has to define path on target device to binary that will be traced. In below example <tt>/data/demo</tt> is the path.</p><p>
+</p><pre style="" class="prettyprint lang-c prettyprinted"><span class="pln">__attribute__</span><span class="pun">((</span><span class="pln">section</span><span class="pun">(</span><span class="str">".biname"</span><span class="pun">)))</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> __adbi_binary</span><span class="pun">[]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="str">"/data/demo"</span><span class="pun">;</span></pre>
+<p>Whole simple handler (for <tt>/data/demo</tt> binary) that copy unsigned char from address 0x0000b000 to local variable msg1 and then print it using <tt>adbi_print</tt> is shown below.
+</p><pre style="" class="prettyprint lang-c prettyprinted"><span class="com">/* Available includes are in /path/to/adbi/idk/include */</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;handler.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;types.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;adbicpy.h&gt;</span><span class="pln">
+
+</span><span class="com">/* import adbi_printf function */</span><span class="pln">
+IMPORT</span><span class="pun">(</span><span class="pln">adbi_printf</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">void</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> fmt</span><span class="pun">,</span><span class="pln"> </span><span class="pun">...);</span><span class="pln">
+
+</span><span class="com">/* Define handler at offset 0x390 in binary file.
+ * Instruction is of type ARM so address in even. */</span><span class="pln">
+HANDLER</span><span class="pun">(</span><span class="lit">390</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> msg1</span><span class="pun">;</span><span class="pln">
+    
+    </span><span class="com">/* Use adbi memcpy internal fuction to perform memory copying.
+     * Copy byte from address 0xb000 to local variable msg1. */</span><span class="pln">
+    __adbicpy</span><span class="pun">(&amp;</span><span class="pln">msg1</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">void</span><span class="pln"> </span><span class="pun">*)</span><span class="pln"> </span><span class="lit">0x0000b000</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">sizeof</span><span class="pun">(</span><span class="pln">msg1</span><span class="pun">));</span><span class="pln">
+    
+    </span><span class="com">/* Print to adbilog one byte in hex representation */</span><span class="pln">
+    adbi_printf</span><span class="pun">(</span><span class="str">"msg1=%x"</span><span class="pun">,</span><span class="pln"> msg1</span><span class="pun">);</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+</span><span class="com">/* Init handler is mandatory, we don't need one so we define it empty. */</span><span class="pln">
+INIT</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{}</span><span class="pln">
+
+</span><span class="com">/* Path to binary on target device */</span><span class="pln">
+__attribute__</span><span class="pun">((</span><span class="pln">section</span><span class="pun">(</span><span class="str">".biname"</span><span class="pun">)))</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> __adbi_binary</span><span class="pun">[]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="str">"/data/demo"</span><span class="pun">;</span></pre><p></p>
+
+<h1 class="western"><a id="examples"></a>Examples</h1>
+<h2 class="western"><a id="examples_binder"></a>Tracking communication with binder driver</h2>
+<p>In this example I will show how to track communication beetween 
+Binder shared library and Binder kernel driver on different devices. We 
+need unstripped version of Binder library <tt>libbinder.so</tt> and 
+access to Binder source code to find places where library communicates 
+with driver. Unstripped binaries can be found on QuickBuild in 
+DEBUG_SYMBOLS package or in Android aoutput directory (<tt>./out/target/product/&lt;model name&gt;/symbols</tt>).</p>
+<p>At first we must prepare filter file. This file will contain names of
+ functions performing communication, that we are interested in. In 
+Binder library sources we can find out that communication with Binder is
+ performed by <tt>talkWithDriver()</tt> method in <tt>IPCThreadState</tt>
+ class. Unfortunately Binder library is written in C++ language and all 
+symbol names are mangled. Mangled symbol name contains class name, 
+method name and some additional characters. Therefore to match some 
+mathod from some class we need to create patter in format: <tt>.*&lt;class name&gt;.*&lt;method name&gt;.*</tt>. Lets create filter file, named <tt>binder.patterns</tt> with pattern that will match <tt>talkWithDriver</tt> function. File contents:
+</p><pre class="terminal">.*IPCThreadState.*talkWithDriver.*</pre><p></p>
+<p>Now, we can generate *.adbi files. For this operation we will use unstripped binder binary. Type in console:
+</p><pre class="terminal">autoadbi --action fns --template systrace --sysroot /path/to/symbols --filter binder.patterns /system/lib/libbinder &gt; binder.adbi</pre><br>
+We chose <tt>fns</tt> action because we want to track function. We use <tt>systrace</tt> template to see nice Systrace graph. In <tt>--sysroot</tt>
+ parameter we passed location of folder with unstripped binaries. Last 
+parameter is Binder binary path on target device and path within symbols
+ location (passed in <tt>--sysroot</tt> parameter). By <tt>--filter</tt>
+ parameter we passed path to our previously prepared filter file. 
+Autoadbi prints generated source code on standard output so we have to 
+redirect it to <tt>binder.adbi</tt> file.<p></p>
+<p>For each device model we must generate different *.adbi file. Generated ADBI files are ready for compilation. Lets do this:
+</p><pre class="terminal">mkinj --sysroot /path/to/symbols/ binder.adbi</pre><br>
+This command compiles given ADBI file and produces <tt>binder.inj</tt> file. This file is ready to copy to target device and use with ADBI server.<p></p>
+<h2 class="western"><a id="examples_snprintf"></a>snprintf() inplementation as library injectable</h2>
+<p>Simplified implemantation of C snprintf function, that is exported 
+and can be imported in other injectables. Remember, if you want to use 
+it in other injectable, both has to be loaded before attaching to 
+process. In current implementation functions exported only by library 
+injectables can be imported by normal injectables. This limitation will 
+be removed in future releases of ADBI.</p>
+<p>File can be compiled by mkinj. Remember, to properly set ADBICC 
+environment variable to path to gcc binary in toolchain designed for 
+your target device:
+</p><pre class="terminal">mkinj --library snprintf ./adbi_snprintf.c </pre><p></p>
+<p><tt>adbi_snprintf.c</tt> file:
+</p><pre style="" class="prettyprint lang-c prettyprinted"><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;adbicpy.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;io.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;division.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;varargs.h&gt;</span><span class="pln">
+</span><span class="com">#include</span><span class="pln"> </span><span class="str">&lt;inj.h&gt;</span><span class="pln">
+
+LOCAL </span><span class="typ">size_t</span><span class="pln"> strlen</span><span class="pun">(</span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> text</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> end </span><span class="pun">=</span><span class="pln"> text</span><span class="pun">;</span><span class="pln">
+    </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">end</span><span class="pun">)</span><span class="pln">
+        </span><span class="pun">++</span><span class="pln">end</span><span class="pun">;</span><span class="pln">
+    </span><span class="kwd">return</span><span class="pln"> end </span><span class="pun">-</span><span class="pln"> text</span><span class="pun">;</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> text</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> count</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">size </span><span class="pun">&gt;</span><span class="pln"> </span><span class="lit">0</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="typ">size_t</span><span class="pln"> copy </span><span class="pun">=</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size </span><span class="pun">&lt;</span><span class="pln"> count </span><span class="pun">?</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size </span><span class="pun">:</span><span class="pln"> count</span><span class="pun">;</span><span class="pln">
+        __adbicpy</span><span class="pun">(*</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> text</span><span class="pun">,</span><span class="pln"> copy</span><span class="pun">);</span><span class="pln">
+        </span><span class="pun">*</span><span class="pln">str </span><span class="pun">+=</span><span class="pln"> copy</span><span class="pun">;</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+
+    </span><span class="pun">*</span><span class="pln">size </span><span class="pun">-=</span><span class="pln"> count</span><span class="pun">;</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_dec_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> buf</span><span class="pun">[</span><span class="lit">25</span><span class="pun">];</span><span class="pln">    </span><span class="com">/*  2 ** 64 in decimal fits into 20 bits  */</span><span class="pln">
+    </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> p </span><span class="pun">=</span><span class="pln"> buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">;</span><span class="pln">
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> next_val </span><span class="pun">=</span><span class="pln"> div10l</span><span class="pun">(</span><span class="pln">val</span><span class="pun">);</span><span class="pln">
+            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> rest </span><span class="pun">=</span><span class="pln"> val </span><span class="pun">-</span><span class="pln"> next_val </span><span class="pun">*</span><span class="pln"> </span><span class="lit">10</span><span class="pun">;</span><span class="pln">
+            </span><span class="pun">*(--</span><span class="pln">p</span><span class="pun">)</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="str">'0'</span><span class="pln"> </span><span class="pun">+</span><span class="pln"> rest</span><span class="pun">);</span><span class="pln">
+            val </span><span class="pun">=</span><span class="pln"> next_val</span><span class="pun">;</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> p</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="pln">buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">)</span><span class="pln"> </span><span class="pun">-</span><span class="pln"> p</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* val is zero, this is a special case */</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="str">"0"</span><span class="pun">,</span><span class="pln"> </span><span class="lit">1</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_signed_dec_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">signed</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> buf</span><span class="pun">[</span><span class="lit">25</span><span class="pun">];</span><span class="pln">    </span><span class="com">/*  2 ** 64 in decimal fits into 20 bits  */</span><span class="pln">
+    </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> p </span><span class="pun">=</span><span class="pln"> buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">;</span><span class="pln">
+    
+    </span><span class="typ">int</span><span class="pln"> minus </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val </span><span class="pun">&lt;</span><span class="pln"> </span><span class="lit">0</span><span class="pun">);</span><span class="pln">
+    
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">minus</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        val </span><span class="pun">=</span><span class="pln"> </span><span class="pun">-</span><span class="pln">val</span><span class="pun">;</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+    
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> next_val </span><span class="pun">=</span><span class="pln"> div10l</span><span class="pun">(</span><span class="pln">val</span><span class="pun">);</span><span class="pln">
+            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> rest </span><span class="pun">=</span><span class="pln"> val </span><span class="pun">-</span><span class="pln"> next_val </span><span class="pun">*</span><span class="pln"> </span><span class="lit">10</span><span class="pun">;</span><span class="pln">
+            </span><span class="pun">*(--</span><span class="pln">p</span><span class="pun">)</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="str">'0'</span><span class="pln"> </span><span class="pun">+</span><span class="pln"> rest</span><span class="pun">);</span><span class="pln">
+            val </span><span class="pun">=</span><span class="pln"> next_val</span><span class="pun">;</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        
+        </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">minus</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="com">/* prepend the minus sign */</span><span class="pln">
+            </span><span class="pun">*--</span><span class="pln">p </span><span class="pun">=</span><span class="pln"> </span><span class="str">'-'</span><span class="pun">;</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> p</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="pln">buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">)</span><span class="pln"> </span><span class="pun">-</span><span class="pln"> p</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* val is zero, this is a special case */</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="str">"0"</span><span class="pun">,</span><span class="pln"> </span><span class="lit">1</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_oct_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> buf</span><span class="pun">[</span><span class="lit">25</span><span class="pun">];</span><span class="pln">    </span><span class="com">/*  2 ** 64 in decimal fits into 20 bits  */</span><span class="pln">
+    </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> p </span><span class="pun">=</span><span class="pln"> buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">;</span><span class="pln">
+    
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* insert decimal digits */</span><span class="pln">
+        </span><span class="kwd">for</span><span class="pln"> </span><span class="pun">(;</span><span class="pln"> val</span><span class="pun">;</span><span class="pln"> val </span><span class="pun">/=</span><span class="pln"> </span><span class="lit">8</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="typ">int</span><span class="pln"> digit </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="typ">int</span><span class="pun">)(</span><span class="pln">val </span><span class="pun">%</span><span class="pln"> </span><span class="lit">8</span><span class="pun">);</span><span class="pln">
+            </span><span class="pun">*--</span><span class="pln">p </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="str">'0'</span><span class="pln"> </span><span class="pun">+</span><span class="pln"> digit</span><span class="pun">);</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> p</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="pln">buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">)</span><span class="pln"> </span><span class="pun">-</span><span class="pln"> p</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* special case: val is zero */</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="str">"0"</span><span class="pun">,</span><span class="pln"> </span><span class="lit">1</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_hex_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> hexdig</span><span class="pun">[]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="str">"0123456789abcdef"</span><span class="pun">;</span><span class="pln">
+    </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> buf</span><span class="pun">[</span><span class="lit">25</span><span class="pun">];</span><span class="pln">    </span><span class="com">/*  2 ** 64 in hex fits into 20 bits  */</span><span class="pln">
+    </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> p </span><span class="pun">=</span><span class="pln"> buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">;</span><span class="pln">
+    
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="kwd">for</span><span class="pln"> </span><span class="pun">(;</span><span class="pln"> val</span><span class="pun">;</span><span class="pln"> val </span><span class="pun">/=</span><span class="pln"> </span><span class="lit">16</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="typ">int</span><span class="pln"> digit </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="typ">int</span><span class="pun">)(</span><span class="pln">val </span><span class="pun">%</span><span class="pln"> </span><span class="lit">16</span><span class="pun">);</span><span class="pln">
+            </span><span class="pun">*--</span><span class="pln">p </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="pln">hexdig</span><span class="pun">[</span><span class="pln">digit</span><span class="pun">]);</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> p</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="pln">buf </span><span class="pun">+</span><span class="pln"> </span><span class="lit">25</span><span class="pun">)</span><span class="pln"> </span><span class="pun">-</span><span class="pln"> p</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* special case: val is zero */</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="str">"0"</span><span class="pun">,</span><span class="pln"> </span><span class="lit">1</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+LOCAL </span><span class="kwd">void</span><span class="pln"> adbi_write_char_unlocked</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">**</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">ssize_t</span><span class="pln"> </span><span class="pun">*</span><span class="pln">size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> val</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+    </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">((</span><span class="pln">val </span><span class="pun">&gt;=</span><span class="pln"> </span><span class="lit">32</span><span class="pun">)</span><span class="pln"> </span><span class="pun">&amp;&amp;</span><span class="pln"> </span><span class="pun">(</span><span class="pln">val </span><span class="pun">&lt;</span><span class="pln"> </span><span class="lit">127</span><span class="pun">))</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* regular char */</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*)</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">val</span><span class="pun">,</span><span class="pln"> </span><span class="lit">1</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="com">/* non-printable char */</span><span class="pln">
+        </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> buf</span><span class="pun">[</span><span class="lit">2</span><span class="pun">];</span><span class="pln">
+        </span><span class="kwd">static</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> hexdig</span><span class="pun">[]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> </span><span class="str">"0123456789abcdef"</span><span class="pun">;</span><span class="pln">
+        buf</span><span class="pun">[</span><span class="lit">0</span><span class="pun">]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> hexdig</span><span class="pun">[(</span><span class="pln">val </span><span class="pun">&gt;&gt;</span><span class="pln"> </span><span class="lit">4</span><span class="pun">)];</span><span class="pln">
+        buf</span><span class="pun">[</span><span class="lit">1</span><span class="pun">]</span><span class="pln"> </span><span class="pun">=</span><span class="pln"> hexdig</span><span class="pun">[</span><span class="pln">val </span><span class="pun">&amp;</span><span class="pln"> </span><span class="lit">0xf</span><span class="pun">];</span><span class="pln">
+        adbi_write_unlocked</span><span class="pun">(</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> buf</span><span class="pun">,</span><span class="pln"> </span><span class="lit">2</span><span class="pun">);</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+GLOBAL </span><span class="typ">int</span><span class="pln"> adbi_snprintf</span><span class="pun">(</span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="typ">size_t</span><span class="pln"> size</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln">fmt</span><span class="pun">,</span><span class="pln"> </span><span class="pun">...)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+	</span><span class="typ">size_t</span><span class="pln"> limit </span><span class="pun">=</span><span class="pln"> size </span><span class="pun">-</span><span class="pln"> </span><span class="lit">1</span><span class="pun">;</span><span class="pln">
+	</span><span class="typ">ssize_t</span><span class="pln"> ssize </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="typ">ssize_t</span><span class="pun">)</span><span class="pln"> size</span><span class="pun">;</span><span class="pln">
+    va_list ap</span><span class="pun">;</span><span class="pln">
+    va_start</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> fmt</span><span class="pun">);</span><span class="pln">
+    
+    </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">(</span><span class="lit">1</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+        </span><span class="kwd">const</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> start </span><span class="pun">=</span><span class="pln"> fmt</span><span class="pun">;</span><span class="pln">
+        
+        </span><span class="com">/* continue until the next percent char */</span><span class="pln">
+        </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">((*</span><span class="pln">fmt</span><span class="pun">)</span><span class="pln"> </span><span class="pun">&amp;&amp;</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">fmt </span><span class="pun">!=</span><span class="pln"> </span><span class="str">'%'</span><span class="pun">))</span><span class="pln">
+            </span><span class="pun">++</span><span class="pln">fmt</span><span class="pun">;</span><span class="pln">
+            
+        </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">fmt </span><span class="pun">&gt;</span><span class="pln"> start</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="com">/* copy bytes from start to fmt directly to the output */</span><span class="pln">
+            adbi_write_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> start</span><span class="pun">,</span><span class="pln"> fmt </span><span class="pun">-</span><span class="pln"> start</span><span class="pun">);</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+        
+        </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(!(*</span><span class="pln">fmt</span><span class="pun">))</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+            </span><span class="com">/* that's it - we've reached the end of the string */</span><span class="pln">
+            </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+
+        </span><span class="pun">++</span><span class="pln">fmt</span><span class="pun">;</span><span class="pln">
+        
+        </span><span class="com">/* do the conversion */</span><span class="pln">
+        </span><span class="pun">{</span><span class="pln">
+            </span><span class="typ">int</span><span class="pln"> length </span><span class="pun">=</span><span class="pln"> </span><span class="lit">3</span><span class="pun">;</span><span class="pln">
+            
+            </span><span class="kwd">while</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">fmt</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                </span><span class="kwd">switch</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">fmt</span><span class="pun">++)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'l'</span><span class="pun">:</span><span class="pln">
+                        </span><span class="pun">++</span><span class="pln">length</span><span class="pun">;</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'h'</span><span class="pun">:</span><span class="pln">
+                        </span><span class="pun">--</span><span class="pln">length</span><span class="pun">;</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'s'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* string */</span><span class="pln">
+                            </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> text </span><span class="pun">=</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">char</span><span class="pln"> </span><span class="pun">*);</span><span class="pln">
+                            adbi_write_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> text</span><span class="pun">,</span><span class="pln"> strlen</span><span class="pun">(</span><span class="pln">text</span><span class="pun">));</span><span class="pln">
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'p'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* pointer */</span><span class="pln">
+                            </span><span class="kwd">void</span><span class="pln"> </span><span class="pun">*</span><span class="pln"> ptr </span><span class="pun">=</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">void</span><span class="pln"> </span><span class="pun">*);</span><span class="pln">
+                            adbi_write_hex_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pun">)((</span><span class="kwd">unsigned</span><span class="pln"> </span><span class="typ">int</span><span class="pun">)</span><span class="pln"> ptr</span><span class="pun">));</span><span class="pln">
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'x'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'X'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'o'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'u'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* unsigned integer */</span><span class="pln">
+                            
+                            </span><span class="com">/* obtain the value */</span><span class="pln">
+                            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> value</span><span class="pun">;</span><span class="pln">
+                            </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">length </span><span class="pun">&gt;=</span><span class="pln"> </span><span class="lit">5</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                                </span><span class="com">/* long long (quad) - 8B */</span><span class="pln">
+                                value </span><span class="pun">=</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pun">);</span><span class="pln">
+                            </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                                </span><span class="com">/* (no modifier) or long - 4B */</span><span class="pln">
+                                value </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pun">)</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="typ">int</span><span class="pun">);</span><span class="pln">
+                            </span><span class="pun">}</span><span class="pln">
+                            
+                            </span><span class="com">/* do the printing */</span><span class="pln">
+                            </span><span class="kwd">switch</span><span class="pln"> </span><span class="pun">(*</span><span class="pln">fmt</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                                </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'o'</span><span class="pun">:</span><span class="pln">
+                                    adbi_write_oct_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> value</span><span class="pun">);</span><span class="pln">
+                                    </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                                </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'u'</span><span class="pun">:</span><span class="pln">
+                                    adbi_write_dec_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> value</span><span class="pun">);</span><span class="pln">
+                                    </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                                </span><span class="kwd">default</span><span class="pun">:</span><span class="pln">
+                                    adbi_write_hex_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> value</span><span class="pun">);</span><span class="pln">
+                                    </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                            </span><span class="pun">}</span><span class="pln">
+                            
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'i'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'d'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* signed integer */</span><span class="pln">
+                            
+                            </span><span class="com">/* obtain the value */</span><span class="pln">
+                            </span><span class="kwd">signed</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> value</span><span class="pun">;</span><span class="pln">
+                            </span><span class="kwd">if</span><span class="pln"> </span><span class="pun">(</span><span class="pln">length </span><span class="pun">&gt;=</span><span class="pln"> </span><span class="lit">5</span><span class="pun">)</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                                </span><span class="com">/* long long (quad) - 8B */</span><span class="pln">
+                                value </span><span class="pun">=</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">signed</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pun">);</span><span class="pln">
+                            </span><span class="pun">}</span><span class="pln"> </span><span class="kwd">else</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                                </span><span class="com">/* (no modifier) or long - 4B */</span><span class="pln">
+                                value </span><span class="pun">=</span><span class="pln"> </span><span class="pun">(</span><span class="kwd">signed</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pun">)</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">signed</span><span class="pln"> </span><span class="typ">int</span><span class="pun">);</span><span class="pln">
+                            </span><span class="pun">}</span><span class="pln">
+                            
+                            adbi_write_signed_dec_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> value</span><span class="pun">);</span><span class="pln">
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                        </span><span class="kwd">break</span><span class="pun">;</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'c'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* char */</span><span class="pln">
+                            adbi_write_char_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="typ">int</span><span class="pun">));</span><span class="pln">
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                        
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'e'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'E'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'f'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'F'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'g'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'G'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'a'</span><span class="pun">:</span><span class="pln">
+                    </span><span class="kwd">case</span><span class="pln"> </span><span class="str">'A'</span><span class="pun">:</span><span class="pln"> </span><span class="pun">{</span><span class="pln">
+                            </span><span class="com">/* float or double */</span><span class="pln">
+                            </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="typ">int</span><span class="pln"> zzz </span><span class="pun">=</span><span class="pln"> va_arg</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">,</span><span class="pln"> </span><span class="kwd">unsigned</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="kwd">long</span><span class="pln"> </span><span class="typ">int</span><span class="pun">);</span><span class="pln">
+                            </span><span class="pun">(</span><span class="kwd">void</span><span class="pun">)</span><span class="pln"> zzz</span><span class="pun">;</span><span class="pln">
+                            adbi_write_unlocked</span><span class="pun">(&amp;</span><span class="pln">str</span><span class="pun">,</span><span class="pln"> </span><span class="pun">&amp;</span><span class="pln">ssize</span><span class="pun">,</span><span class="pln"> </span><span class="str">"&lt;float&gt;"</span><span class="pun">,</span><span class="pln"> </span><span class="lit">7</span><span class="pun">);</span><span class="pln">
+                            </span><span class="kwd">goto</span><span class="pln"> done</span><span class="pun">;</span><span class="pln">
+                        </span><span class="pun">}</span><span class="pln">
+                </span><span class="pun">}</span><span class="pln">
+            </span><span class="pun">}</span><span class="pln">
+        done</span><span class="pun">:</span><span class="pln"> </span><span class="pun">;</span><span class="pln">
+        </span><span class="pun">}</span><span class="pln">
+    </span><span class="pun">}</span><span class="pln">
+
+    va_end</span><span class="pun">(</span><span class="pln">ap</span><span class="pun">);</span><span class="pln">
+
+    </span><span class="pun">*</span><span class="pln">str </span><span class="pun">=</span><span class="pln"> </span><span class="str">'\0'</span><span class="pun">;</span><span class="pln">
+
+    </span><span class="kwd">return</span><span class="pln"> limit </span><span class="pun">-</span><span class="pln"> ssize</span><span class="pun">;</span><span class="pln">
+</span><span class="pun">}</span><span class="pln">
+
+INIT</span><span class="pun">()</span><span class="pln"> </span><span class="pun">{}</span><span class="pln">
+
+EXPORT</span><span class="pun">(</span><span class="pln">adbi_snprintf</span><span class="pun">);</span></pre><p></p>
+
+
+</body></html>

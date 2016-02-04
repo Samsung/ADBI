@@ -1,0 +1,74 @@
+#!/usr/bin/env python
+
+import bisect
+import sys
+import subprocess
+import struct
+
+symbols = sorted(l.strip() + '_tinsn' for l in sys.stdin if l.strip())
+
+TEXTBASE = 0x8000
+
+def iter_addresses(symbols):
+    cmd = ['readelf', '--syms', 'adbitest']
+    for line in subprocess.check_output(cmd).split('\n'):
+        line = line.split()
+        try:
+            symbol = line[-1]
+            if symbol in symbols: 
+                address = int(line[1], 16)
+                yield address - TEXTBASE
+        except (IndexError, ValueError):
+            pass
+
+addresses = list(iter_addresses(symbols))
+
+def iter_mapping():
+    cmd = ['readelf', '--syms', 'adbitest']
+    for line in subprocess.check_output(cmd).split('\n'):
+        try:
+            line = line.split()
+            name = line[7]
+            addr = int(line[1], 16)
+            if name.startswith('$'):
+                yield addr - TEXTBASE, name
+        except (IndexError, ValueError):
+            pass    
+
+mapping = sorted(iter_mapping())
+
+def kind(address):
+    i = bisect.bisect_right(mapping, (address, '$z'))
+    if i:
+        v = mapping[i - 1][1]
+        d = {'$a': 'arm', '$t': 'thumb'}
+        return d[v]
+    raise ValueError
+
+def opcode(address, kind):
+    with open('adbitest', 'r') as f:
+        f.seek(address)
+        if kind == 'thumb':
+            insn = struct.unpack('<H', f.read(2))[0]
+            if insn >= 0xe800:
+                insn <<= 16
+                insn |= struct.unpack('<H', f.read(2))[0]
+        else:
+            insn = struct.unpack('<I', f.read(4))[0]
+
+        return insn
+    
+print 'connect'
+print 'injectable load /data/dummy.inj'
+print 'process spawn /data/adbitest'
+print 'binding add /data/adbitest dummy'
+
+for address in addresses:
+    k = kind(address)
+    if k == 'thumb':
+        address &= ~1
+    o = opcode(address, k)
+    if o > 0xe800 and k == 'thumb':
+        k = 'thumb2'
+    
+    print 'tracepoint add /data/adbitest dummy_handler 0x%08x 0x%08x %s' % (address, o, k)

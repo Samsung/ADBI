@@ -1,0 +1,87 @@
+TODO
+
+Fast jumps
+----------
+
+Right now, adbiserver inserts tracepoints by replacing instructions in another processes code by breakpoint or illegal
+instructions.  When the process reaches the given point, an interrupt occurs, which is translated to a signal by Linux 
+and delivered to adbiserver.  adbiserver detects that this is a tracepoint, changes the PC to the address of the low 
+level handler of the tracepoint and lets it continue.  This is fast, much faster than GDB.  Still we can do better. 
+
+Instead of inserting a breakpoint instruction, adbiserver could simply insert a jump instruction.  This way the process 
+would jump directly to the tracepoint handler without the signal-context switch-ptrace continue-context switch 
+procedure.  
+
+The problem that we can only patch one instruction, which is 4 bytes long (or even 2 bytes in thumb mode).  We would 
+have to use relative jump instructions, which have a limited jump range.  The trampoline segment should be close enough
+to the tracepoint to make use of this approach.  Note however, that it is possible to mmap memory at a speciffic
+address.  We can ask Linux to mmap some memory just before or after the code segment with the tracepoint and place the
+trampoline there.  Tracepoints that are still too far from the handler could use the old mechanism as a fallback. 
+
+
+Unimplemented DWARF elements
+----------------------------
+
+cachereader does not support the following C features yet:
+    *   structs with bitfields (partial implementation is available);
+    *   function types and function pointers;
+    *   stack unwinding (storing stack unwind information, i.e. how to get the address from where the function got 
+        called);
+
+
+Testing of DWARF parsing
+------------------------
+
+DWARF symbol reading cachereader is almost completely implemented for binaries compiled from C code, but was not tested 
+against all possible cases. 
+
+
+C++ support
+-----------
+
+ADBI has only basic support for files compiled from C++.  The DWARF information describing C++ files is parsed, but some
+information may be not captured correctly. 
+
+
+Safe memory access from handlers
+--------------------------------
+
+Tracepoint handlers often read values of the program variables in order to analyze or dump them.  However, some of the 
+variables are pointers, so dumping their values is useless.  In such cases the pointer should be dereferenced, but this
+might be unsafe.  The pointer may contain an invalid address, so dereferencing can cause a segmentation fault.  
+Currently a segmentation fault in the traced process is not handled by adbiserver -- the signal is simply delivered and 
+as a result the process dies.  However, adbiserver could detect and handle SIGSEGV received in handlers.  Memory access
+in handlers could be done in a special function (e.g. adbi_readmem).  The function would simply try to access the memory
+and copy it to a buffer.  In case of a segmentation fault, adbiserver would detect that this is the reading function and
+it would just make the function return an error value.
+
+
+ADBI calls
+----------
+
+adbiserver tries to push all work related to tracepoint handling to the traced process side.  All information (variable
+values etc.) is dumped by the process itself in the handler.  However, some things cannot be done by the process.  For
+example, in some cases it might be necessary for the handler to get some information from adbiserver or ask adbiserver 
+to perform an action.  This can be done through "ADBI calls" -- the handler could cause a special exception/signal on 
+purpose.  All signals are routed through adbiserver, so adbiserver could detect that this particular signal was an ADBI
+call and handle it.  Note that this approach is very similar to a system call.
+
+
+Proper linker detection
+-----------------------
+
+Right now linker marker function address is resolved just once.  adbiserver analyzes its own ELF binary and finds out 
+where the linker marker function is located in its own address space.  Then it assumes that the address is the same in 
+other processes too.  This works, but it's a hack -- it will work only until somebody decides to change the Android 
+linker.  For details, see doc/DYNAMIC_LINKER.
+
+
+Using ELF instead of custom inj format
+--------------------------------------
+
+Injectable files use a custom format.  However, the format is actually equivalent to ELF.  It has a section with code, a
+list of symbols and some additional adbi specific attributes.  All this could be done using ELF only.  The ELF format is
+really simple, but still extensible.  Using ELF, we would be able to use binutils only for injectable building.  It 
+would be also much easier to debug and analyze injectables because the ELF files could contain DWARF information. 
+
+

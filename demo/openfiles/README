@@ -1,0 +1,13 @@
+Demo shows all open and creat calls. Output can be see in adbilog. Handlers are placed at first instruction of open and creat functions. First argument (file path) is taken from x0 register and send via adbi_printf to adbilog. 
+
+Usage:
+Make sure ADBICC env variable is set to valid path to gcc. If not:
+export ADBICC=/path/to/gcc-4.9/bin/aarch64-linux-android-gcc
+
+1. link libc.so library into folder with openfiles.adbi file:
+
+ln -s $ANDROID/out/target/product/$PRODUCT/symbols/system/lib64/libc.so
+
+2. make injectable:
+
+mkinj --binary /system/lib64/libc.so ./opnfiles.adbi

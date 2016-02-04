@@ -1,0 +1,196 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__author__ = 'Michał Leśniewski'
+__contact__ = 'm.lesniewski@samsung.com'
+__version__ = '0.1'
+
+from collections import defaultdict, namedtuple
+import argparse
+import os
+import struct
+import sys
+
+class Injectable:
+    class Flags:
+        LIBRARY = 1
+
+    Header = namedtuple('Header', 'magic version flags code_size code name comment adbi imports exports tpoints')
+    HeaderStruct = struct.Struct('<8sHHIIIIIIII')
+    HeaderStructv21 = struct.Struct('<8sHHIQQQQQQQ')
+    SymbolStruct = struct.Struct('<28sI')
+    TPointStruct = struct.Struct('<II')
+
+    ELEMENT_ORDER = 'name comment code tpoints adbi imports exports'.split()
+
+    def _read_str(self, pos, max=0):
+        def iter_str():
+            self.file.seek(pos)
+            while True:
+                c = self.file.read(1)
+                if ord(c) == 0:
+                    break
+                yield c
+        return ''.join(iter_str()) if pos else None
+
+    def _read_syms(self, pos):
+        def iter_syms():
+            self.file.seek(pos)
+            while True:
+                symbol, address = self.SymbolStruct.unpack(self.file.read(self.SymbolStruct.size))
+                while symbol.endswith('\0'):
+                    symbol = symbol[:-1]
+                if not (symbol):
+                    break;
+                yield symbol, address
+        return dict(iter_syms()) if pos else {}
+
+    def _read_tpoints(self, pos):
+        def iter_tpoints():
+            self.file.seek(pos)
+            while True:
+                tpoint, handler = self.TPointStruct.unpack(self.file.read(self.TPointStruct.size))
+                if not (tpoint):
+                    break
+                yield tpoint, handler
+
+        return dict(iter_tpoints()) if pos else {}
+
+
+    def __init__(self, injfile):
+        self.file = injfile
+        
+        self.file.seek(0)
+        self.header = self.Header(*self.HeaderStruct.unpack(self.file.read(self.HeaderStruct.size)))
+        if self.header.version == 0x0210:
+            self.file.seek(0)
+            self.header = self.Header(*self.HeaderStructv21.unpack(self.file.read(self.HeaderStructv21.size)))
+        
+        self.file.seek(self.header.code)
+        self.code = self.file.read(self.header.code_size)
+
+        self.name = self._read_str(self.header.name);
+        self.comment = self._read_str(self.header.comment);
+
+        self.adbi = self._read_syms(self.header.adbi)
+        self.imports = self._read_syms(self.header.imports)
+        self.exports = self._read_syms(self.header.exports)
+        self.tpoints = self._read_tpoints(self.header.tpoints)
+
+        self.flags = self.header.flags
+
+
+    def __dump_symbols(self, symbols):
+        if symbols:
+            for symbol in sorted(symbols):
+                print '    {:28}   {:08x}'.format(symbol, symbols[symbol])
+            print '{:} symbol{:} total.'.format(len(symbols), '' if len(symbols) == 1 else 's')
+        else:
+            print '    None.'.format(len(symbols), '' if len(symbols) == 1 else 's')
+        print
+
+    def dump_imports(self):
+        print 'Imported symbols:'
+        self.__dump_symbols(self.imports)
+
+    def dump_exports(self):
+        print 'Exported symbols:'
+        self.__dump_symbols(self.exports)
+
+    def dump_adbi(self):
+        print 'ADBI symbols:'
+        self.__dump_symbols(self.adbi)
+
+    def dump_tracepoints(self):
+        if self.tpoints:
+            print 'Tracepoints:'
+            for tpoint in sorted(self.tpoints):
+                print '    {:08x}   {:08x}'.format(tpoint, self.tpoints[tpoint])
+        else:
+            print 'Injectable defines no tracepoints.'
+        print
+
+    @property
+    def is_library(self):
+        return bool(self.flags & self.Flags.LIBRARY)
+
+    @property
+    def total_size(self):
+        self.file.seek(0, 2)
+        return self.file.tell()
+
+    def print_summary(self):
+        print 'Summary:'
+        if self.is_library:
+            print '  Library name:  ', self.name
+        else:
+            print '  Linked binary: ', self.name
+        print '  Comment:       ', self.comment
+        print '  Version:        %04x' % self.header.version
+        print '  Tracepoints:   ', len(self.tpoints or [])
+        print '  Imports:       ', len(self.imports or [])
+        print '  Exports:       ', len(self.exports or [])
+        print '  ADBI symbols:  ', len(self.adbi or [])
+        print '  Total size:    ', self.total_size
+        print '  Code size:     ', self.header.code_size, '(~%i%%)' % (100 * self.header.code_size / self.total_size)
+        print
+
+    def dump_code(self):
+        format = '  %%0%ix  ' % (len(hex(self.header.code_size)) - 1)
+        for n, x in enumerate(self.code):
+            if n % 16 == 0:
+                print 'Code dump:' if n == 0 else ''
+                print format % n,
+            elif n % 4 == 0:
+                print ' ',
+            print '%02x' % ord(x),
+        print 
+        print 
+
+def main():
+    parser = argparse.ArgumentParser(description='Display information about ADBI injectables.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('--summary', action='store_true', help='print file summary')
+    parser.add_argument('--all', '-A', action='store_true', help='print all available information symbols')
+    parser.add_argument('--imports', '-i', action='store_true', help='print imported symbols')
+    parser.add_argument('--exports', '-e', action='store_true', help='print exported symbols')
+    parser.add_argument('--adbi', '-a', action='store_true', help='print ADBI symbols')
+    parser.add_argument('--tracepoints', '-t', action='store_true', help='print defined tracepoints')
+    parser.add_argument('--code', '-c', action='store_true', help='dump code')
+
+    parser.add_argument('input', type=argparse.FileType('rb'), help='input file')
+    args = parser.parse_args()
+
+    autosummary = not (args.code or args.all or args.summary or args.imports or args.exports or args.adbi or args.tracepoints)
+
+    try:
+        inj = Injectable(args.input)
+        if args.all or args.summary or autosummary:
+            inj.print_summary()
+
+        if args.all or args.adbi:
+            inj.dump_adbi()
+
+        if args.all or args.imports:
+            inj.dump_imports()
+
+        if args.all or args.exports:
+            inj.dump_exports()
+
+        if args.all or args.tracepoints:
+            inj.dump_tracepoints()
+
+        if args.code:
+            inj.dump_code()
+
+    except KeyboardInterrupt:
+        raise SystemExit('*** Aborted')
+    except (struct.error, TypeError, ValueError):
+        raise SystemExit('*** File malformed.')
+    except IOError:
+        raise SystemExit('*** I/O error')
+      
+
+if __name__ == '__main__':
+    main()

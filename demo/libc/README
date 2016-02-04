@@ -1,0 +1,71 @@
+
+Usage:
+
+Make sure ADBICC env variable is set to valid path to gcc. If not:
+export ADBICC=/path/to/gcc-4.9/bin/aarch64-linux-android-gcc
+
+For this example we need adbi_snprintf library injectable on the device. Refer to ./demo/adbi_snprintf directory.
+
+
+1. Link system root directory with debugging symbols:
+
+ln -s $ANDROID/out/target/product/$PRODUCT/symbols
+
+2. Generate handlers at svc instructions inside given symbols using systrace handler template:   
+
+autoadbi -t systrace -a insn --sysroot ./symbols -f patterns /system/lib64/libc.so > io.adbi
+
+-t systrace			-> Use systrace handler template. This template generates 
+					   code that writes to trace_marker on tracepoint hit.
+-a insn				-> Action: instruction (insn) - track particular instruction(default: svc). Mark inctuction as begin and instruction after traced one as end.
+					   Autoadbi will automatically find all procedure epilogs.
+--sysroot			-> Path to system root directory.
+-f patterns 		-> Filter file. Filter out all symbols/function names that
+					   don't match any pattern from file (file uses Regex patterns).
+
+3. Make injectable:
+
+mkinj --sysroot ./symbols io.adbi
+
+4. Copy all needed files to device:
+
+adb push ./adbi_snpintf.inj /data/
+adb push ./io.inj /data/
+
+5. Run:
+
+a) Obtain zygote64 PID
+
+adb shell ps | grep zygote64
+
+b) Run adbiserver:
+
+adb forward tcp:9999 tcp:9999
+adb shell
+# su
+# setenforce 0
+# /data/adbiserver
+
+c) Attach to zygote64:
+
+adbi3
+# load /data/adbi_snprintf.inj
+# load /data/io.inj
+# attach $ZYGOTE_PID
+# start
+
+d) See strace output in tracing_pipe:
+
+adb shell
+# cd /d/tracing
+# echo 1 > ./tracing_on
+# cat ./trace_pipe
+^C
+
+e) Capture systrace:
+
+systrace.py -t 30
+
+  or
+
+systrace.py -t 30 sched

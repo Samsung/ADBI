@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+
+from cachebuilder import DebugInfo
+
+__version__ = "0.1"
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Create an ADBI symbol cache files from DWARF binaries.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('input', type=argparse.FileType('rb'), nargs='+', help='Input binary file.')
+    parser.add_argument('--log', '-l', 
+                        type=str, 
+                        choices='DEBUG INFO WARNING ERROR CRITICAL'.split(), 
+                        default='INFO', help='set verbosity level (default: %(default)s)')
+    parser.add_argument('-d', '--dump',
+                        action='store_true',
+                        help='Dump SQL code instead of writing a file.')
+    args = parser.parse_args()
+
+    loglevel = getattr(logging, args.log.upper())
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=loglevel)
+
+    for infile in args.input:
+        debuginfo = DebugInfo(infile)
+        if args.dump:
+            conn = debuginfo.cache
+            for line in conn.iterdump():
+                print line
+        else:
+            debuginfo.store()
+            

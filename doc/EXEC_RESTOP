@@ -1,0 +1,87 @@
+Restopping on exec calls
+------------------------
+
+
+When the EXEC_RESTOP macro is defined, adbiserver will allways "restop"
+a thread before running any injected code. 
+
+
+What is restopping
+------------------
+
+Restopping a thread is done by the fncall_restop function. The function
+reads the current PC and CPSR register values. It detects the processor
+state (ARM vs. Thumb) and reads the next instruction at the address
+poited by the PC register. The original instruction is stored and
+temporarily replaced by a breakpoint instruction. After that, adbi lets
+the thread continue. Of course, the breakpoint instruction will cause
+a SIGTRAP (or SIGILL in some cases) immediately after start. This signal
+is caught by adbi like a normal breakpoint signal. The original
+instruction at PC is then reverted and the function finishes.
+
+In some rare cases, the address stored in the PC register may be
+invalid. It may either not point to any valid memory segment, or the
+segment may be protected from execution. In these cases no instructions
+are patched. The adbi process simply lets the process continue and waits
+for a SIGSEGV signal to occur. 
+
+
+Why do we need restopping
+-------------------------
+
+Restopping is necessary only after a thread calls exec. Exec is actually
+a special system call. When exec is called, the system call is entered
+from the code and context of the calling process. When exec returns, it
+runs code from a fresh binary executable. All memory segments are
+reinitialized, all threads other than the calling thread are killed etc.
+
+During an exec system call, Linux reads the binary file containing the
+image for the new process. This is usually an ELF file. Besides the code
+and data, the file also contains information about the entry address of
+the executable (this is usually a low-level entry inside libc or the
+linker, not the main function). After loading the binary, Linux sets the
+PC to the entry address, initializes a stack segment and initializes 3
+arguments, which are passed to the entry function. The signature of the
+low level entry function in C syntax would be:
+    
+    int entry(int argc, char * argv[], char * envp[])
+
+The first two arguments are the command line options as in the main
+function. The third argument is a pointer to an array of strings, which
+define environment variables. 
+
+In ARM the function is called using the standard EABI way, the
+parameters are passed in the r0, r1 and r2 registers. 
+
+If the process, which calls exec is traced using ptrace, the tracer
+process may be notified about execing. The notification occurs after the
+kernel loads and fully initializes the new virtual memory space of the
+process and sets up the stack and entry parameters. The tracee is
+stopped just before running the entry function. 
+
+When the tracee is stopped, the tracer process can control the process
+using the ptrace system call. In theory the stop after an exec is not
+different from a stop caused by a signal. Still, the process is actually
+stopped inside kernel code, in the exec system call handling routine. 
+
+Unfortunately, after letting the process continue, Linux always
+reassigns the initial values of registers r0, r1 and r2. 
+
+Functions injected by adbi require parameters, which are passed through
+the same registers. As a result of the register reassignment after exec,
+we can not run injected code at this point. Using the restop procedure
+fixes the problem, because it makes the process start and stop again,
+but this time the stop is caused by a signal, not a exec call.
+
+
+Performance considerations
+--------------------------
+
+Of course, the restopping procedure causes some additional overhead,
+mainly because of the additional context switches between tracer and
+tracee. Still it should not cause performance problems, because
+restopping only needs to be done once, immediately after the exec call. 
+
+However, the described situation is probably a minor Linux kernel bug.
+It is very possible that the problem does not occur on other
+architectures. 

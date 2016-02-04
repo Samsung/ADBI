@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+
+import sys
+
+symbols = sorted(l.strip() for l in sys.stdin if l.strip())
+
+print r'''
+#include <stdlib.h>
+#include <stdio.h>
+#include <signal.h>
+
+void handler(int sig_num, siginfo_t * info, void * ucontext) {
+    (void) ucontext;
+    fprintf(stderr, "Received signal %d (%s) at %p.\n", sig_num, strsignal(sig_num), info->si_addr);
+    exit(0xe);
+}
+
+void install_handler() {
+    struct sigaction sigact;
+    sigact.sa_sigaction = handler;
+    sigact.sa_flags = SA_RESTART | SA_SIGINFO;
+    if (sigaction(SIGSEGV, &sigact, 0) || sigaction(SIGILL, &sigact, 0)) {
+        fprintf(stderr, "Error installing signal handler.\n");
+        exit(1);
+    } 
+}
+
+'''
+
+for symbol in symbols:
+    print 'unsigned int %s();' % symbol
+    
+print
+
+print 'int main() {'
+
+print '    install_handler(); '
+#print '    *((int *) 0) = 10;'
+
+def human_name(s):
+    return ' '.join(s.split('_')[1:])
+    
+for symbol in symbols:
+    print '    printf("%%-32s %%08x\\n", "%s", %s()); ' % (human_name(symbol), symbol)
+
+print '    return 0;'
+
+print '}'

@@ -1,0 +1,22 @@
+Calling functions form ADBI
+---------------------------
+
+Sometimes adbiserver needs to force a child process to execute a function.  This occurs when an injectable needs to be 
+initialized or when ADBI needs to allocate memory in the inferior process.  
+
+To make a call in the child process, adbiserver performs the following steps:
+    1.  First all threads of the process are stopped. 
+    2.  If required, the threads are additionally stabilized.
+    3.  A random slave thread T is selected -- it will be used to make the function call.
+    4.  The full context of thread T is stored (all registers are captured and saved).
+    5.  The PC register of thread T is set to the address of the function -- this directs control to our function.
+    6.  The LR register of thread T is set to zero -- this makes sure that just after the function finishes,
+        a segmentation violation occurs (because the function will return to NULL).
+    7.  Other registers and the stack are prepared according to the ABI -- first 4 arguments are placed in r0-r3, 
+        further arguments are pushed on the stack. 
+    8.  The T thread is continued, adbiserver wait on the thread (waitpid). 
+    9.  When the thread stops, adbiserver checks stop reason.  A SIGSEGV signal at PC == 0 is expected.  If stop reason 
+        is different, something went wrong.
+    10. The result value is captured from r0. 
+    11. Context of thread T is restored.
+    12. All threads are continued.

@@ -1,0 +1,11 @@
+#include "a64_handler.h"
+
+HANDLER_BEGIN
+
+HANDLER_OOL_BEGIN
+
+	HANDLER_OOL_RETURN(_to_imm26_)
+
+HANDLER_OOL_END
+
+HANDLER_END

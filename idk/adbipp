@@ -1,0 +1,455 @@
+#!/usr/bin/python
+
+import argparse
+import shlex
+import os.path
+import sys
+from difflib import get_close_matches
+
+import common.output
+
+from cachereader import C
+from common.enums import InsnKinds
+
+import logging
+
+from cachereader.debuginfo import DebugInfo
+
+__version__ = "0.1"
+
+def normpath(path):
+    path = os.path.expandvars(path)
+    path = os.path.expanduser(path)
+    path = os.path.normpath(path)
+    return os.path.abspath(path)
+
+
+def load_debuginfo(binary, script=None, sysroot='/'):   
+    if os.path.isabs(binary):
+        path = os.path.join(sysroot, binary[1:])
+    else:
+        if script:
+            path = os.path.join(os.path.dirname(script), binary)
+        else:
+            path = binary
+    return DebugInfo.load(path)
+
+
+class Preprocessor(object):
+    
+    DIRECTIVES = 'binary handler endhandler gettype getvar'.split()
+    
+    def _reset_handler(self):
+        # Handler location specification from the last #handler directive 
+        self.handler_loc = None
+        # Handler address (None outside handlers and in invalid handlers)
+        self.handler_addr = None
+        
+        # Flags for remembering if the frame base and cfa have been imported 
+        self.handler_frame = False
+        self.handler_cfa = False
+        
+        # Set of defined types 
+        self.defined_types = set()
+        # Mapping of explicitly imported types to their import location
+        self.explicit_types = {}
+        # Set of forward declared types 
+        self.forwarded_types = set()
+        # Mapping of imported vars to their import location
+        self.imported_vars = {}
+        # Mapping of symbol names introduced by the processor to their human readable descriptions 
+        self.names = {}
+    
+    def __init__(self, file_object, binary=None, sysroot='/', ignore_errors=False):
+        self.file_object = file_object
+        self.script = file_object.name
+        self.lineno = 0
+        self.sysroot = normpath(sysroot)
+        
+        self.binary_path = binary
+        self.debuginfo = None
+                
+        self.handlers = {}
+
+        self._reset_handler()
+        
+        if self.binary_path:
+            self.binary(self.binary_path)
+        
+        self.ignore_errors = ignore_errors
+        self.errors = 0
+        self.warnings = 0
+        
+    @property
+    def where(self):
+        '''Current location in the processed file represented as a string.'''
+        return '%s:%-3i' % (self.script, self.lineno)
+        
+    def fatal(self, message, *args):
+        '''Write an fatal error message to the log.'''
+        logging.error('%s error:  %s', self.where, message % args)
+        self.errors += 1
+
+    def error(self, message, *args):
+        '''Write an error or warning (if ignore_errors) message to the log.'''
+        if self.ignore_errors:
+            logging.warning('%s warning: error:  %s', self.where, message % args)
+            logging.warning('%s warning: ignoring non fatal error', self.where)
+        else:
+            logging.error('%s error:  %s', self.where, message % args)
+            self.errors += 1
+    
+    def warn(self, message, *args):
+        '''Write a warning message to the log.'''
+        logging.warn('%s warning: %s', self.where, message % args)
+        self.warnings += 1    
+    
+    def info(self, message, *args):
+        '''Write an information message to the log.'''
+        logging.info('%s info:   %s', self.where, message % args)
+    
+    def debug(self, message, *args):
+        '''Write a debug message to the log.'''
+        logging.debug('%s debug:  %s', self.where, message % args)
+            
+    def unsupported(self, message, *args):
+        '''Write a unsupported message to the log.'''
+        logging.error('%s unsupported:  %s', self.where, message % args)
+        self.errors += 1
+            
+
+    def binary(self, path):
+        '''Handles the #binary directive.'''
+        if self.binary_path:
+            self.fatal('attemp to change binary from "%s" to "%s"', self.binary_path, path)
+
+        self.binary_path = path
+            
+        self.debug('logical binary path: %s', path)
+           
+        if os.path.isabs(path):
+            path = os.path.join(self.sysroot, self.binary_path[1:])
+        else:
+            if self.script:
+                path = os.path.join(os.path.dirname(self.script), path)
+
+        self.debug('physical binary path: %s', path)
+        self.debuginfo = load_debuginfo(path)  
+        
+        return []
+
+
+    def handler(self, location_spec):
+        '''Handles the #handler directive.'''       
+        if self.handler_loc:
+            self.fatal('nested #handler directive')
+
+        self._reset_handler()
+        self.handler_loc = location_spec
+        
+        if self.binary_path is None:
+            self.fatal('#handler directive with unset binary')
+            return
+
+        try:        
+            self.handler_addr = self.debuginfo.get_addr(location_spec)
+        except ValueError as ve:
+            self.warn(str(ve))
+
+        if not self.handler_addr:
+            self.warn('Unable to find address of %s in DWARF information. Trying to find symbol with given name.' % location_spec)
+            try:
+                self.handler_addr = self.debuginfo.get_addr(location_spec, True)
+            except ValueError as ve:
+                self.error(str(ve))
+                return
+        
+        if self.handler_addr in self.handlers:
+            self.fatal('#handler refers to the same address as handler defined at %s' % self.handlers[self.handler_addr])
+            return
+        
+        self.handlers[self.handler_addr] = self.where
+        self.debug('''handler "%s" location resolved to address %#x''' % (self.handler_loc, self.handler_addr))
+        
+        addr = self.handler_addr
+
+        if self.debuginfo.insnset[addr] == InsnKinds.thumb:
+            addr |= 1
+                
+        yield 'HANDLER(%x) {' % (addr)
+        yield C.INDENT + '// location: %s' % self.handler_loc
+
+
+    def endhandler(self):
+        '''Handles the #endhandler directive.'''
+        if self.handler_loc:
+            yield '} // %s ' % (self.handler_loc)
+            yield ''
+            self.handler_loc = None
+            self.handler_addr = None
+            self.handler_frame = False
+            self.handler_cfa = False
+            self.defined_types = set()
+            self.forwarded_types = set()
+        else: 
+            self.fatal('unmatched #endhandler directive')
+
+    def _define_datatype_tree(self, datatype):
+        if datatype in self.defined_types:
+            return
+        
+        order = datatype.deforder
+                
+        for each, define in order:
+            if each in self.defined_types:
+                # type was already defined - skip it
+                continue
+            
+            if define:
+                self.debug('    defining datatype "%s", originally defined at %s', each, each.location)
+                assert not (each.hard_requirements - self.defined_types)
+                assert not (each.soft_requirements - self.defined_types - self.forwarded_types)
+                self.defined_types.add(each)
+                for line in each.define():
+                    yield line
+
+            elif each not in self.forwarded_types:
+                self.debug('    declaring datatype "%s", originally defined at %s', each, each.location)
+                self.forwarded_types.add(each)
+                for line in each.declare():
+                    yield line
+            
+
+
+    def gettype(self, typename, importname=None):
+        '''Handles the #gettype directive.'''
+        if not self.handler_loc:
+            self.fatal('#gettype directive outside handler block')
+            return
+        if self.handler_addr is None:
+            # Unresolved handler address -- skip
+            return
+        
+        matches = self.debuginfo.types.get_by_name(typename)
+        
+        if not matches:
+            self.fatal('cannot resolve data type "%s"', typename)
+            self.suggest(typename, self.debuginfo.types.names)
+            return
+        elif len(matches) > 1:
+            self.fatal('ambiguous data type "%s"', typename)
+            return
+        
+        datatype = matches.pop()
+        
+        if datatype in self.explicit_types:
+            self.warn('type "%s" was already imported at %s', datatype, self.explicit_types[datatype])
+        else:
+            self.explicit_types[datatype] = self.where
+             
+        for line in self._define_datatype_tree(datatype):
+            yield C.INDENT + line
+        
+
+    def suggest(self, input, options):
+        def orstr(elements):
+            if len(elements) == 1:
+                return elements[0]
+            else:
+                eins = ', '.join(suggestions[:-1])
+                zwei = suggestions[-1]
+                return ' or '.join([eins, zwei])          
+        
+        suggestions = ['"%s"' % s for s in get_close_matches(input, options)]
+        if suggestions:
+            self.info('    did you mean %s?', orstr(suggestions))
+        else:
+            self.debug('    no suggestions')
+
+
+    def getvar(self, varname, importname=None):
+        if not self.handler_loc:
+            self.fatal('#getvar directive outside handler block')
+            return 
+        
+        if self.handler_addr is None:
+            self.debug('skipping #getvar directive because of unresolved handler address')
+            return
+         
+        importname = importname or varname 
+
+        if not C.is_identifier(importname):
+            self.fatal('imported variable name "%s" is not a valid C identifier', importname)
+            return
+        
+        if importname.startswith('__adbi'):
+            self.fatal('__adbi prefix is reserved')
+            return
+        
+        var = self.debuginfo.variables.lookup(self.handler_addr, varname)
+
+        if var in self.imported_vars:
+            self.warn('variable "%s" already imported at %s', varname, self.imported_vars[var])
+        else: 
+            self.imported_vars[var] = self.where
+
+        if importname in self.names:
+            self.fatal('name %s is already in use by %s', importname, self.names[importname])
+        else:
+            self.names[importname] = 'variable imported at %s' % self.where
+        
+        if var is None:
+            self.fatal('variable "%s" not visible at "%s"', varname, self.handler_loc)
+            self.suggest(varname, (each.name for each in self.debuginfo.variables.iter_variables(self.handler_addr)))
+        else:
+            # Define the variable data type and all its dependencies if required
+            for line in self._define_datatype_tree(var.datatype):
+                yield C.INDENT + line            
+            
+            try:
+                dwexpr = var.getvar(self.handler_addr)
+            except Exception as e:
+                self.error("Unable to get DWARF expression of variable %s: %s" % (var.name, e))
+                return
+
+            need_frame = dwexpr.uses_frame and not self.handler_frame
+            need_cfa = dwexpr.uses_cfa
+            
+            if need_frame:
+                frame_expr = self.debuginfo.framepointers.getframe(self.handler_addr)
+                need_cfa |= frame_expr.uses_cfa
+            else:
+                frame_expr = None 
+            
+            need_cfa &= not self.handler_cfa
+            
+            if need_cfa:
+                self.debug('handler requires __adbi_cfa__')
+                yield C.INDENT + '// importing call frame address (CFA)'
+                cfa_expr = self.debuginfo.cfa[self.handler_addr]
+                if cfa_expr.uses_frame:
+                    self.unsupported('call frame information references function frame base')
+                if cfa_expr.uses_cfa:
+                    self.unsupported('call frame information references itself')
+                yield C.INDENT + 'char * __adbi_cfa__ = %s;' % cfa_expr.assign_address() 
+                self.handler_cfa = True;
+                yield ''
+            
+            if frame_expr:
+                self.debug('handler requires __adbi_frame__')
+                yield C.INDENT + '// importing frame base'
+                yield C.INDENT + 'char * __adbi_frame__ = %s;' % frame_expr.assign_address()                    
+                self.handler_frame = True;
+                yield ''
+                
+            self.debug('handler importing variable "%s", originally defined at %s', varname, var.location)
+            yield '    // import of variable %s as %s' % (varname, importname)
+            declaration = [ line for line in var.iter_declaration(importname) ]
+            for line in declaration:
+                yield C.INDENT + line    
+
+            if len(declaration) == 1:
+                import re
+                yield C.INDENT + dwexpr.assign(importname, var.is_scalar, re.sub('/\*.*?\*/', '', line.rsplit(' ', 1)[0]))
+            else:
+                yield C.INDENT + dwexpr.assign(importname, var.is_scalar)
+
+
+
+    def handle(self, directive, args):
+        directive = directive.lower()
+        
+        if directive not in self.DIRECTIVES:
+            self.fatal('unrecognized directive #%s' % directive)
+        
+        handler = getattr(self, directive)
+
+        try:
+            linegen = handler(*args)
+        except TypeError:
+            self.fatal('invalid number of arguments to directive #%s (got %i)' % (directive, len(args)))
+            return
+        
+        for each in linegen:
+            yield each
+    
+    def run(self):
+        
+        def get_directive(line):
+            '''Return the directive and its argument from the given line.'''
+            line = line.strip()
+            if not line.startswith('#'):
+                return None, []
+            line = shlex.split(line[1:])
+            
+            if not line:
+                return None, []
+            
+            return line[0], line[1:]
+        
+        self.debug('Processing script %s.', self.script)
+
+        yield '// File autogenerated by adbipp'
+        yield '#include <gcc.h>'
+        yield '#include <handler.h>'
+        yield '#include <types.h>'
+        yield '#include <adbicpy.h>'
+
+        setline = True
+
+        for self.lineno, line in C.iter_lines(C.byte_reader(self.file_object)):   
+            directive, args = get_directive(line)
+            
+            if not directive or directive in C.CPP_DIRECTIVES:
+                if setline:
+                    yield '#line %i "%s"' % (self.lineno, self.script)
+                    setline = False
+                yield line
+            else:
+                count = 0
+                for each in self.handle(directive, args):
+                    if (count >= 1):
+                        yield '#line %i "%s"' % (self.lineno, self.script)
+                    yield each
+                    count += 1
+                setline = (count != 1)
+        
+        if self.handler_loc:
+            self.fatal('missing closing #endhandler for handler %s' % self.handler_loc)
+
+        # Insert information about the binary path
+        if self.binary_path:
+            yield '#line %i "%s"' % (self.lineno, self.script)
+            yield '__attribute__((section(".biname"))) char __adbi_binary[] = "%s";' % self.binary_path
+
+    @property
+    def success(self):
+        return not self.errors
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='ADBI Script preprocessor.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('input', type=argparse.FileType('rb'), help='input file')
+    parser.add_argument('--output', '-o', type=argparse.FileType('w'), default='-', help='input file')
+    parser.add_argument('--log', '-l', type=str, 
+                        choices='DEBUG INFO WARNING ERROR CRITICAL'.split(), 
+                        default='INFO', help='set verbosity level (default: %(default)s)')
+    parser.add_argument('--sysroot', type=str, default='.', metavar='dir', 
+                        help='use dir as the logical root directory for binaries (default: %(default)s)')
+    parser.add_argument('--ignore-errors', '-i', action='store_true', help='ignore non fatal errors')
+    args = parser.parse_args()
+
+    loglevel = getattr(logging, args.log.upper())
+    logging.basicConfig(format='%(message)s', level=loglevel)
+    
+    processor = Preprocessor(args.input, sysroot=args.sysroot, ignore_errors=args.ignore_errors)
+    output = list(processor.run())
+  
+    if not processor.success:
+        raise SystemExit('*** %i errors, %i warnings' % (processor.errors, processor.warnings))
+    else: 
+        for line in output:
+            args.output.write(line + '\n');
+    
+    

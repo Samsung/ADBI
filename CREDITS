@@ -1,0 +1,10 @@
+Engineers responsible for this project were:
+
+* Michal Lesniewski (m.lesniewski@samsung.com)
+Main ADBI developer. Developed version 1 and 2 and made heavy foundation for the current version no 3.
+
+* Jakub Janeczko (j.janeczko@samsung.com)
+Successive ADBI developer. Took over ADBI development after Michal's retirement from this project, evolved and concluded version 3. Finally ported ADBI for the ARM64 architecture.
+
+* Bartosz Zator (b.zator@samsung.com)
+Devised the ADBI idea, technically and organizationally managed the project throughout its history.

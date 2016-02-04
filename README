@@ -1,0 +1,15 @@
+Android Dynamic Binary Instrumentation (ADBI) is a tool for dynamically tracing Android native layer. Using this tool you can insert tracepoints (and a set of corresponding handlers) dynamically into the process address space of a running Android system. When the tracepoint is hit your custom handler (which can be written in C) is executed. You can deliver your own code through the handlers. It is possible to access process variables and memory. Host side tool written in Python communicates with the native adbiserver process (which resembles the gdb-server in its operation) and translates source level symbols into addresses within the final binaries. As of authors knowledge this is a first such tool for ARM (including ARM64) architecture.
+ADBI tool was developed in Samsung Poland R&D Center located in Warsaw, Poland as a research project for new development tools and process improvement.
+
+Sample features:
+Generates function trace from Android native user space
+Allows for dynamically driven trace configuration
+Can measure time between instructions for profiling
+Injects custom code into running process
+Can modify and reimplement running native applications
+
+Benefits:
+No recompilation of debugging application is needed
+Can see what exactly happens in Android native layer
+Finding problem areas, tracking down strange bugs more manageable
+Better system knowledge, faster product delivery

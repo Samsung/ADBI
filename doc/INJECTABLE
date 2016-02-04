@@ -1,0 +1,124 @@
+ADBI Injectable file format
+---------------------------
+
+Files injected by the ADBI server are generated from special ELF files.
+They contain a copy of the original ELF file's .text section and a very
+simplified symbol table. 
+
+Normally, an ELF file contains other sections besides the code section
+(.text) itself. ELF files often also include a .data and a .bss sections,
+which contain global data (variables). These sections are NOT copied to
+the injectable file. 
+
+Still, it is possible to use global variables in the injectable code by
+using a special linker script, which merges the .data section into the
+.text section. The ADBI server will inject the file into a memory range,
+which is readable, writable and executable, so no segmentation
+violations should occur.
+
+It must be noted that the ADBI server can inject the generated file into
+any process at any address. This means that the code can not use
+absolute addresses and branches. To generate such injectable code, the
+GCC compiler can be used. The --pie command line option will force the
+compiler to generate code which is position independent and requires no
+dynamic/late linking.
+
+The symbol table in the injectable should only contain symbols, which
+represent global functions. These symbols will be later recognized by
+the ADBI server. ADBI can be set up to call these functions on a
+tracepoint hit.
+
+
+Kinds of injectables
+--------------------
+
+There are two kinds of injectables -- tracepoint injectables and library injectables.  
+
+Tracepoint injectables are always assigned to some binaries on disk.  These can be executable files or shared libraries.
+The binaries are simply specified by their absoulute path in the file system. When a tracepoint injectable is loaded 
+into adbiserver, adbiserver starts monitoring its children and checking they have the binary mapped in their memory
+space.  If adbi detects that a child uses the given binary, it automatically injects the injectable into their memory.
+
+A tracepoint injectable can be injected at any moment, but injections usually occur during child process startup or 
+when the process uses the dynamic linker to load a library. 
+
+Tracepoint injectables can define tracepoints in the binary they are assigned to.  Tracepoints are defined by pairs of 
+addresses -- the first address is the tracepoint location in the binary.  This is not the runtime address of the 
+tracepoint, but the offset of the instruction relative to the beginning of the file.  The second address is the handler
+address in the injectable.  This is an offset inside the code supplied in the injectable (offset counts from beginning
+of code, not beginning of file).
+
+It must be noted that adbiserver doesn't understand any kind of ELF or DWARF symbols and it does not relocate the
+addresses.  For tracepoint specification it only uses addresses.  All address transformations and relocations need to 
+be done at a higher level.
+
+Besides tracepoints, tracepoint injectables can also define imported symbols.  Imported symbols are names of functions
+used by the injectable in its handlers, which are defined in other injectables (usually library injectables).  This is
+just like external symbols in regular programs.
+
+
+Library injectables are not related to binaries.  They only provide definitions of functions, which are callable from
+other (library or tracepoint) injectables.  All symbols, which should be made available to other injectables are listed
+in a special exports symbol table.  Whenever an injectable imports a function, adbiserver searches the export symbol 
+tables of other injectables of the process and assigns the right runtime addresses.  This is a simplified dynamic 
+linking algorithm.
+
+
+Besides import and export symbol tables, injectables may include another symbol table containing adbi symbols.  This is 
+a special symbol table, which includes a list of functions, which are meant to be called from adbiserver.  If adbi needs
+to call such a function, it stops all threads of the process, selects a slave thread and forces it to run the specified
+function. 
+
+
+File format
+-----------
+
+The injectable files consist of a file header, a symbol list and the
+injectable data. In the following descriptions all integers are unsigned
+and all data is encoded little endian.  
+
+File header:
+    8B      magic -- must be "adbi3inj"
+    u16     version -- must be 0x0200
+    u16     flags 
+    u32     injectable code size in bytes -- must be > 0
+    u32     offset to start of code 
+    u32     offset to start of name string
+    u32     offset to start of comment string
+    u32     offset to start of adbi symbol table
+    u32     offset to start of imported symbol table
+    u32     offset to start of exported symbol table
+    u32     offset to start of tracepoint table
+
+Offsets are always encoded on 4 bytes and are relative to the beginning of the header.  An offset value of zero means
+that the given element is missing in the file. 
+
+The name and comment strings are null terminated (their size is not stored anywhere in the file).  All injectables must
+have a name, but don't need a comment.
+
+The code is stored in raw form and is exactly as long as the header specifies.  An injectable without code is invalid.
+
+All 3 symbol tables are stored in the file in the same format:
+    28B     symbol name (null terminated)
+    u32     symbol offset 
+
+The symbol name is simply a string.  The string cannot be longer than 27 bytes.  The name is always null terminated. 
+Bytes following the null terminator before the offset are ignored.  
+
+Symbol table records are written one after another without any padding.  The end of the table is marked by an entry
+with an empty symbol name (the first byte of the symbol name is zero).
+
+The tracepoint table has the following format:
+    u32     tracepoint address 
+    u32     handler offset
+
+Tracepoint table records are written one after another without any padding.  The end of the table is marked by an entry
+with a zero tracepoint address.
+
+
+Extending the format
+--------------------
+
+The injectable format can be easily extended without breaking backward compatibility.  This can be achieved by adding 
+more elements to the header.  The additional fields can be offsets to locations in the file.  Older consumers of the 
+file will ignore this data. 

@@ -1,0 +1,516 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+import adbi
+import powercmd
+
+__version__ = "0.1"
+
+class ADBICmd(powercmd.Cmd):
+
+    intro = 'Welcome to ADBI 3.0.'
+    LOGLEVELS = 'SILENT FATAL ERROR WARNING INFO VERBOSE DEBUG'.split()
+
+    def __init__(self, address, port):
+        powercmd.Cmd.__init__(self)
+        self.addr = (address, port)
+        self.adbi = adbi.ADBI()
+        self.wait_connect()
+        self.directories = {}
+
+    def wait_connect(self):
+        print '*** Connecting... (hit CTRL-C to cancel)'
+        while True:
+            try:
+                self.adbi.connect(self.addr)
+                self.adbi.ping()
+                print '*** Connected.'
+                break
+            except (IOError, adbi.ADBIException):
+                try:
+                    self.adbi.disconnect()
+                except adbi.ADBIException:
+                    pass
+                time.sleep(1)
+                continue
+
+    def run_command(self, fn, *args):
+        try:
+            while True:
+                try:
+                    v = fn(*args)
+                    if isinstance(v, adbi.packet.Packet):
+                        print v.get('msg', 'OK.')
+                    return
+                except IOError:
+                    print '*** Connection error.  Trying to reconnect.'
+                    try:
+                        self.adbi.disconnect()
+                    except adbi.ADBIException:
+                        pass
+                    self.wait_connect()
+        except adbi.ADBIException as e:
+            print e
+
+    ############################################################################
+    ## completion and conversion
+    ############################################################################
+
+    @staticmethod
+    def uint(val):
+        ret = int(val)
+        if ret < 0:
+            raise ValueError
+        return ret        
+
+    def conv_size(self, value):
+        if value.startswith('0x'):
+            return int(value[2:], 16)
+        return int(value)
+
+    def conv_address(self, value):
+        if value.startswith('0x'):
+            value = value[2:]
+        return int(value, 16)
+        
+
+    def complete_tracee(self):
+        return self.adbi.processes
+
+    def conv_pid(self, value):
+        try:
+            return self.uint(value)
+        except ValueError:
+            raise ValueError('Invalid PID: %s' % value)
+
+    def conv_tracee(self, value):
+        return self.conv_pid(value)
+
+    def complete_pid(self, val):
+        def iter_processes():
+            for entry in self.adbi.ls('/proc/'):
+                if not entry.endswith('/'):
+                    continue
+                try:
+                    yield str(int(entry[:-1]))
+                except ValueError:
+                    pass
+        try:
+            return list(iter_processes())
+        except Exception as e:
+            print e 
+
+    def complete_path(self, path):
+        dirpath = os.path.dirname(path or '/') 
+        if not dirpath: 
+            dirpath = '/'
+        entries = [os.path.join(dirpath, x)
+                   for x in self.adbi.ls(dirpath + '/')
+                   if x not in ('..', '.', './', '../')]
+        return entries
+        
+    def complete_program(self, path):
+        if path.startswith('/'):
+            return self.complete_path(path)
+        else:
+            return [x for x in self.adbi.ls('/system/bin') if not x.endswith('/')]
+
+    def complete_injectable(self):
+        return [inj.id for inj in self.adbi.injectables]
+
+    def conv_injectable(self, value):
+        try:
+            return self.uint(value)
+        except ValueError:
+            raise ValueError('Invalid PID: %s' % value)
+
+    def conv_loglevel(self, val):
+        try:
+            try: 
+                return int(val)
+            except ValueError:
+                return self.LOGLEVELS.index(val)
+        except ValueError:
+            raise ValueError('Invalid logging level: %s.' % val)
+
+    def complete_loglevel(self):
+        return self.LOGLEVELS + [str(x) for x in range(7)]
+
+
+    ############################################################################
+    ## adb 
+    ############################################################################
+
+    def do_adb(self, adbcommand, *params):
+        '''
+        Invoke adb with the given parameters.
+
+        This command simply invokes the adb command.  All arguments are passed 
+        directly to adb.  The adb binary must be in the PATH.
+        '''
+        cmd = 'adb ' + adbcommand + ' ' + ' '.join(params)
+        msg = ''
+        print 'Invoking:', cmd
+        try:
+            powercmd.output.horizontal_line(' adb ')
+            ret = subprocess.call(cmd, shell=True)
+            if ret:
+                msg = ' error code: {:} '.format(ret)
+        except KeyboardInterrupt:
+            msg = ' interrupted '
+        except Exception:
+            msg = ' Python error during call '
+        finally:
+            print
+            powercmd.output.horizontal_line(msg)
+
+    def complete_adbcommand(self, words):
+        commands = \
+            'devices shell push pull sync logcat forward jdwp install ' \
+            'uninstall bugreport backup restore version help start-server ' \
+            'kill-server get-state get-serialno get-devpath status-window ' \
+            'remount reboot reboot-bootloader root usb tcpip ppp'
+        return commands.split()
+
+    ############################################################################
+    ## adbiserver control
+    ############################################################################
+
+    def do_start(self):
+        '''
+        Resume all traced processes.
+
+        start resumes all processes traced by ADBI after they have been stopped 
+        using the stop command.
+        '''
+        return self.adbi.start()
+
+    def do_stop(self):
+        '''
+        Stop all traced processes.
+
+        stop stops all processes traced by ADBI.  The adbiserver makes sure that 
+        all threads of a process are stopped outside injected code (the threads 
+        are stabilized).  Process execution can be resumed by using the start 
+        command.
+        '''
+        return self.adbi.stop()
+    
+    def do_quit(self):
+        '''
+        Quit adbiserver and exit ADBI prompt.
+
+        quit sends a quit requrest to adbiserver and exits the interactive ADBI 
+        prompt.  Before quitting, adbiserver kills all spawned child processes. 
+        Processes, which are attached, but were not spawned by ADBI are not 
+        killed.  Instead, adbiserver simply removes all injected memory segments
+        and removes all patches in the process memory.
+        '''
+        ret = self.adbi.quit()
+        if isinstance(ret, adbi.packet.Packet):
+            print ret.get('msg', 'OK.')
+            raise powercmd.QuitException
+        return ret
+
+    def do_loglevel(self, loglevel):
+        '''
+        Change adbiserver log verbosity level. 
+
+        loglevel changes the log verbosity level of adbiserver.  This only 
+        influences messages printed to stderr by the (remote) adbiserver 
+        process. 
+
+        Level may be a numeric value from 0 (least verbose) to 6 (most verbose) 
+        or a string describing the verbosity.  Possible levels are:
+
+            0   SILENT      don't print any messages
+            1   FATAL       only report fatal errors 
+            2   ERROR       report all errors (fatal and non-fatal)
+            3   WARNING     report all errors and unusual situations
+            4   INFO        like WARNING, but also print some diagnostic messages
+            5   VERBOSE     like INFO, but more verbose 
+            6   DEBUG       print all messages, including internal adbiserver 
+
+        The default logging level is 4 (INFO).  Note that the DEBUG level is 
+        only for debugging adbiserver itself and is too verbose for regular 
+        usage.  In case of release builds of adbiserver, debug messages may be 
+        disabled completely.
+        '''
+        self.adbi.loglevel(loglevel)
+
+    ############################################################################
+    ## process control
+    ############################################################################
+    def do_attach(self, pid):
+        '''
+        Attach to the given process.
+
+        attach requests adbiserver to start tracing the process with the given 
+        PID.  Note that ADBI only traces whole processes (not single threads). 
+        For this reason, the PID of any thread of a given process may be given 
+        and adbi will trace the whole process (all processes with the same 
+        TGID).
+        '''
+        return self.adbi.attach(pid)
+
+    def do_detach(self, tracee):
+        '''
+        Detach from the given process.
+
+        detach disables tracing of the process with the given PID.
+        '''
+        return self.adbi.detach(tracee)
+
+    complete_detach = complete_pid
+
+    def do_kill(self, tracee):
+        '''
+        Kill a traced process.
+
+        kill terminates a process with the given PID by sending it the SIGTERM 
+        signal.'''
+        return self.adbi.kill(tracee)
+
+    complete_kill = complete_pid
+
+    def do_spawn(self, program, *args):
+        '''
+        Spawn a new process and attach to it.
+
+        spawn starts a new child process.  PROGRAM is the path to the program 
+        to be started (relative or absolute).  ARGS are arguments to the program
+        (passed just like through the command line).  The spawned process is 
+        automatically traced.  Any injections are inserted by adbiserver before
+        any original instruction of the program is executed (i.e. before the 
+        main function starts and before any low-level entry code like 
+        constructors, initializers, etc.).  This allows tracing processes from 
+        the very start, which guarantees that no tracepoint hits are missed.
+        '''
+        return self.adbi.spawn([program] + list(args))
+
+    def do_address(self, tracee, address):
+        '''
+        Explain an address in an attached process.
+
+        address queries adbiserver about the given address in the given process 
+        and prints its interpretation if available.  If the address is valid in 
+        the given process, adbiserver will supply a human-readable explanation
+        of the address.
+        '''
+        return self.adbi.explain_address(tracee, address)
+
+    complete_address = complete_pid
+
+    def do_ps(self):
+        '''
+        List attached process IDs.
+
+        ps prints a list of processes traced by ADBI (both spawned and 
+        attached).  It does not list all processes running on the system.'''
+        powercmd.output.columnize(self.adbi.processes)
+
+    def do_memdump(self, tracee, address, size):
+        '''
+        Dump a range of process memory.
+
+        memdump dumps SIZE bytes of memory of the process specified by PID 
+        starting at the given ADDRESS.  The process must be traced.  Output is
+        formatted like a hex dump.
+        ''' 
+        bytes = self.adbi.dump(tracee, address, size);
+
+        print 'Captured %i bytes.' % len(bytes)
+
+        line = ''
+        expl = ''
+        maxlen = 0
+        laddr = address
+        for n, b in enumerate(bytes, 1):
+            line += '%02x ' % ord(b)
+            if b.isspace():
+                expl += ' '
+            elif 32 <= ord(b) <= 126:
+                expl += b
+            else:
+                expl += '.'
+            if n % 8 == 0:
+                line += ' '
+            maxlen = max(maxlen, len(line))
+            if n % (2 * 8) == 0:
+                print '%8x    %s  %s' % (laddr, line, expl)
+                laddr = address + n
+                line = ''
+                expl = ''
+        if line:
+            line += ' ' * (maxlen - len(line))
+            print '%8x    %s  %s' % (laddr, line, expl)
+
+    complete_memdump = complete_pid
+
+    def do_memory(self, tracee):
+        '''
+        Display a memory map of the given process.
+
+        memory prints a table containing the memory segments of the given 
+        process and a summary describing how much memory is used by different
+        kinds of allocations.  The process must be traced.
+        '''
+        mem = self.adbi.get_memory(tracee)
+        def iter_data():
+            def hexify(v):
+                return '%08x' % v
+            for l, h, t, f, o in mem:
+                yield hexify(l), hexify(h), t, f, hexify(o) if f else ''
+
+        powercmd.output.title('Memory map')
+        head = 'LOW HIGH TYPE FILE OFFSET'.split()
+        powercmd.output.table(iter_data(), head)
+
+        total = sum((x[1] - x[0] for x in mem), 0)
+        def iter_summary():
+            total = sum((x[1] - x[0] for x in mem), 0.0)
+            for category in sorted(set(x[2] for x in mem)):
+                bytes = sum((x[1] - x[0] for x in mem if x[2] == category), 0)
+                yield category, powercmd.output.human_size(bytes), powercmd.output.human_percent(bytes / total)
+            yield 'TOTAL', powercmd.output.human_size(total), powercmd.output.human_percent(1)
+
+        powercmd.output.title('Summary')
+        head = 'CATEGORY SIZE PERCENTAGE'.split()
+        powercmd.output.table(iter_summary(), head, align='<>>')
+
+    ####################################################################################################################
+    ## injectable control
+    ####################################################################################################################
+
+    def do_load(self, path):
+        '''
+        Load an injectable.
+
+        load loads a new injectable from disk.  The PATH specifies the file in 
+        the remote filesystem.  Note that a injectable file may only be loaded 
+        once.  Also, there can be only one injectable assigned to a given 
+        binary.  Upon successful load, the injectable is assigned an injectable
+        id (IID).  It can be later used to refer to the injectable.
+        '''
+        return self.adbi.injectable_load(path)
+
+    def do_free(self, injectable):
+        '''
+        Unload an injectable.
+
+        free unloads an injectable.  The injectable must be specified by its 
+        IID.  Note that some injectables can not be unloaded. 
+        '''
+        return self.adbi.injectable_unload(injectable)
+
+    
+    def do_inj(self):
+        '''
+        List loaded injectables.
+
+        inj lists all injectables currently loaded into adbiserver along with
+        some useful information about them.'''
+        HEAD = 'ID FILENAME REFS TYPE NAME COMMENT'.split()
+        powercmd.output.table(self.adbi.injectables, HEAD, align='><><<<')
+
+
+    def do_imports(self, injectable):
+        '''
+        List symbols imported by the given injectable.
+
+        imports lists relative addresses and names of functions, which are 
+        used by the given injectable, but their implementation is located in 
+        a different injectable (the functions are exported by other 
+        injectables).  The injectable is specified by its ID.  The addresses are
+        relative to the beginning of the injectable code and specify the 
+        location, where the linkage trampoline is located.'''
+        HEAD = 'OFFSET NAME'.split()
+        data = sorted(('%x' % addr, name) for addr, name in self.adbi.get_injectable_imports(injectable))
+        powercmd.output.table(data, HEAD)
+   
+    
+    def do_exports(self, injectable):
+        '''
+        List symbols exported by the given injectable.
+
+        exports lists relative addresses and names of functions, which are 
+        defined in the given injectable, and are exported (visible to other 
+        loaded injectables).  The injectable is specified by its ID.  The 
+        addresses are relative to the beginning of the injectable code.'''
+        HEAD = 'OFFSET NAME'.split()
+        data = sorted(('%x' % addr, name) for addr, name in self.adbi.get_injectable_exports(injectable))
+        powercmd.output.table(data, HEAD)
+
+    
+    def do_adbisyms(self, injectable):
+        '''
+        List ADBI symbols exported by the given injectable.
+
+        adbisyms lists relative addresses and names of functions, which are 
+        defined in the given injectable, and are callable from adbiserver.
+        The injectable is specified by its ID.  The addresses are relative to 
+        the beginning of the injectable code. 
+        '''
+        HEAD = 'OFFSET NAME'.split()
+        data = sorted(('%x' % addr, name) for addr, name in self.adbi.get_injectable_adbi(injectable))
+        powercmd.output.table(data, HEAD)
+
+
+    def do_tracepoints(self, injectable):
+        '''
+        List all tracepoints defined by a given injectable.
+
+        tracepoints lists all tracepoint addresses defined by a given 
+        injectable.  The injectable must be specified by ID.  Tracepoints are 
+        listed together with their handler addresses. 
+        '''
+        HEAD = 'ADDRESS HANDLER'.split()
+        data = sorted(('%x' % addr, '%x' % handler) for addr, handler in self.adbi.get_injectable_tracepoints(injectable))
+        powercmd.output.table(data, HEAD, align='>>')
+
+    ####################################################################################################################
+
+    def do_run(self, script):
+        '''
+        Run a script. 
+
+        run reads commands line by line from a text file in the local file 
+        system and executes them as if they were typed into the interactive 
+        shell.
+        '''
+        try:
+            with open(script) as s:
+                for line in s:
+                    self.do(line.split())
+        except IOError, e:
+            print '*** Error running %s: %s.' % (script, e)
+        except KeyboardInterrupt:
+            print '*** Canceled.'
+
+
+def main():
+    parser = argparse.ArgumentParser(description='ADBI 3.0 interactive client.')
+    parser.add_argument('-V', '--version', action='version',
+                    version="%(prog)s (ADBI 3.0 project) " + __version__)
+
+    parser.add_argument('--address', '-a', metavar='address', type=str,
+                        help='adbiserver address (default: %(default)s)',
+                        default='127.0.0.1')
+    parser.add_argument('--port', '-p', metavar='port', type=int,
+                        help='adbiserver port, (default: %(default)s)', default=9999)
+
+    args = parser.parse_args()
+
+    try:
+        con = ADBICmd(args.address, args.port)
+        con.interactive()
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,367 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+__author__ = 'Michał Leśniewski'
+__contact__ = 'm.lesniewski@samsung.com'
+__version__ = '0.3'
+
+import argparse
+import os
+import struct
+import sys
+
+from collections import defaultdict, namedtuple
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'elftools.zip'))
+from elftools.elf.elffile import ELFFile
+from elftools.elf.sections import SymbolTableSection
+import elftools
+
+class Injectable:
+    class Flags:
+        LIBRARY = 1
+
+    Header = namedtuple('Header', 'magic version flags code_size code name comment adbi imports exports tpoints strings lines')
+    #HeaderStruct = struct.Struct('<8sHHIIIIIIIIII') #v2.0
+    HeaderStruct = struct.Struct('<8sHHIQQQQQQQQQ') #v2.1
+    SymbolStruct = struct.Struct('<28sI')
+    TPointStruct = struct.Struct('<II')
+    LineStruct = struct.Struct('<III')
+
+    ELEMENT_ORDER = 'name comment code tpoints adbi imports exports lines strings'.split()
+
+    def __init__(self, code, 
+                 name=None, comment=None,
+                 imports=dict(), exports=dict(), adbi=dict(), 
+                 tracepoints=dict(), 
+                 flags=0,
+                 lines=dict()):
+        self.code = code
+        self.name = name
+        self.comment = comment
+        self.imports = imports
+        self.exports = exports
+        self.adbi = adbi
+        self.tpoints = tracepoints
+        self.flags = flags
+        self.lines = lines
+        if not self.name:
+            raise ValueError('error: injectable name is empty.')
+        if self.is_library and self.tpoints:
+            raise ValueError('error: library injectable defines tracepoints.')
+
+        # Compose strings 
+        allstrings = [x[0] for x in lines.itervalues()]
+        allstrings = [x + '\0' for x in allstrings]
+        self.strings = ''.join(sorted(set(allstrings)))
+
+    def get_string_offset(self, string):
+        offset = self.strings.find(string)
+        assert offset >= 0
+        return offset    
+
+    @classmethod
+    def symtab_bin(cls, symbols):
+        raw = sorted(symbols.items()) + [('', 0)]
+        return ''.join(cls.SymbolStruct.pack(*symbol) for symbol in raw)
+
+    @property
+    def name_bin(self):
+        return self.name + '\0'
+
+    @property
+    def comment_bin(self):
+        return self.comment + '\0'
+
+    @property
+    def code_bin(self):
+        return self.code
+
+    @property 
+    def adbi_bin(self):
+        return self.symtab_bin(self.adbi)
+
+    @property 
+    def imports_bin(self):
+        return self.symtab_bin(self.imports)
+
+    @property 
+    def exports_bin(self):
+        return self.symtab_bin(self.exports)
+
+    @property 
+    def tpoints_bin(self):
+        raw = sorted(self.tpoints.items()) + [(0, 0)]
+        return ''.join(self.TPointStruct.pack(*symbol) for symbol in raw)
+
+    @property 
+    def lines_bin(self):
+        def iter_entries():
+            for addr in sorted(self.lines):
+                filename, line = self.lines[addr]
+                fileoffs = self.get_string_offset(filename)
+                yield self.LineStruct.pack(addr, fileoffs, line)
+            yield self.LineStruct.pack(0, 0, 0)
+        return ''.join(iter_entries())
+
+    @property
+    def strings_bin(self):
+        return self.strings
+
+    def get_offset(self, what):
+        if not getattr(self, what):
+            # The element is empty -- it's not stored at all, so there's no offset.
+            return 0
+
+        idx = self.ELEMENT_ORDER.index(what)
+        while idx > 0:
+            # Not the first element, so get the previous element offset and size
+            prev = self.ELEMENT_ORDER[idx - 1]
+            prev_offset = self.get_offset(prev)
+            if prev_offset:
+                prev_size = len(getattr(self, prev + '_bin'))
+                return prev_offset + prev_size
+            else:
+                # Previous element is not stored, try the next one.
+                idx -= 1
+        
+        # This is the first element after the header
+        return self.HeaderStruct.size
+
+    @property 
+    def header(self):
+        return self.Header(
+            'adbi3inj', 
+            0x0210,
+            self.flags,
+            len(self.code),
+            self.get_offset('code'),
+            self.get_offset('name'),
+            self.get_offset('comment'),
+            self.get_offset('adbi'),
+            self.get_offset('imports'),
+            self.get_offset('exports'),
+            self.get_offset('tpoints'),
+            self.get_offset('strings'),
+            self.get_offset('lines'))
+        
+    @property 
+    def header_bin(self):
+        return self.HeaderStruct.pack(*self.header)
+
+    @property
+    def inj(self):
+        elements = [getattr(self, e + '_bin') for e in self.ELEMENT_ORDER if getattr(self, e)]
+        return self.header_bin + ''.join(elements)
+
+    def save(self, filename):
+        with open(filename, 'wb') as f:
+            f.write(self.inj)
+
+    @classmethod
+    def from_io(cls, filename, name=None, comment=None, library=False):
+        # Open the ELF file
+        elffile = ELFFile(open(filename, 'rb'))
+                    
+        def get_section(name):
+            '''Return section with matching name.'''
+            # Map names of section to section objects
+            sections = dict((section.name, section) for section in elffile.iter_sections())
+            return sections[name]
+        
+        def get_section_range(name):
+            '''Return range of addresses belonging to given section.'''
+            section = get_section(name)
+            return section.header.sh_addr, section.header.sh_addr + section.header.sh_size
+
+        def dump_section(name):
+            '''Dump name contents of given section.'''
+            start, end = get_section_range(name)
+            with open(filename, 'rb') as file:
+                file.seek(start)
+                return file.read(end - start)   
+
+        def is_addr_in_section(name, addr):
+            start, end = get_section_range(name)
+            return start <= addr < end
+
+        code = dump_section('.adbi')
+        try: 
+            path = dump_section('.biname')
+            if '\0' in path: 
+                path = path[:path.find('\0')]
+        except KeyError:
+            if not name:
+                raise SystemExit('No binary specified.')
+            path = None
+        
+        if path:
+            if library:
+                print 'warning: library injectable specifies binary (ignoring)'
+                name = library
+            else:
+                if name and name != path:
+                    print 'warning: overriding injectable binary (file specifies %s, changing to %s).' % (path, name)
+                else:
+                    name = path
+
+        def iter_symbols():
+            '''Yield all function symbol and their addresses inside the .adbi section.'''
+            # Find the symbol table section
+            symtab = get_section('.symtab')
+            adbi_low = get_section_range('.adbi')[0]
+
+            for symbol in symtab.iter_symbols():
+                addr = symbol['st_value']
+                # Skip symbols outside adbi section
+                if not is_addr_in_section('.adbi', addr):
+                    continue
+                # Skip symbols which are not functions
+                if symbol['st_info']['type'] != 'STT_FUNC':
+                    continue
+                # Got a matching symbol
+                yield symbol.name, addr - adbi_low
+                    
+        # Symbols recognized and meaningful to us start with special prefixes.  This function helps finding them.
+        def get_symbols(prefix):
+            '''Return a dictionary of symbols starting with the given prefix (and discard the prefix).'''
+            return dict((name[len(prefix):], addr) for name, addr in iter_symbols() if name.startswith(prefix))
+
+        def iter_lines():
+            '''Return a mapping of addresses to file:line pairs.'''
+            if not elffile.has_dwarf_info():
+                return
+
+            debuginfo = elffile.get_dwarf_info()
+
+            for compilation_unit in debuginfo.iter_CUs():
+                lineprog = debuginfo.line_program_for_CU(compilation_unit)
+                for entry in lineprog.get_entries():
+                    if (entry.state is None) or (entry.state.end_sequence):
+                        continue
+
+                    filename = lineprog['file_entry'][entry.state.file - 1].name
+                    line = entry.state.line
+
+                    yield entry.state.address, (filename, line)
+
+        # Categorize symbols
+        exports = get_symbols('__export$')
+        imports = get_symbols('__import$')
+        handlers = get_symbols('__handler$')
+        adbi = get_symbols('__adbi$')
+
+        # Process handlers
+        
+        # Collect invalid handler names.
+        invalid = set()
+
+        # Map handler addresses to their names as they appear in the source.
+        handlername = dict((addr, 'HANDLER(%s)' % name) for name, addr in handlers.iteritems())
+
+        # To report errors nicely, map tracepoint addresses to a list of all handlers first. Of course, a tracepoint can
+        # only be handled by one handler, but this way we'll be able to easily detect all conflicts.
+        tracepoints = defaultdict(list)
+
+        # Fill out tracepoints table.
+        for tracepoint, handler in handlers.iteritems():
+            try:
+                tracepoint = int(tracepoint, 16)
+                if not (0 <= tracepoint < 2 ** 32):
+                    raise ValueError
+                tracepoints[tracepoint].append(handler)
+            except ValueError:
+                # Handler references invalid tracepoint.
+                invalid.add(handler)
+            
+        # Check for conflicts -- find all sets of handlers, which refer to the same tracepoint.
+        conflicts = [(tracepoint, handlers) for tracepoint, handlers in tracepoints.iteritems() if len(handlers) > 1]
+
+        # Convert conflicts to a simple tracepoint to handler mapping. 
+        tracepoints = dict((tracepoint, handlers[0]) for tracepoint, handlers in tracepoints.iteritems())
+
+        # Report warnings and errors    
+        for tracepoint, handlers in conflicts:
+            names = sorted(handlername[handler] for handler in handlers)
+            print "error: multiple handlers for tracepoint at 0x{:08x}:".format(tracepoint)
+            for name in names:
+                print '    ', name
+
+        if invalid:
+            print "error: invalid tracepoint addresses:"
+            for handler in invalid:
+                name = handlername[handler]
+                print '    ', name
+        
+        errors = len(conflicts) + len(invalid)
+        if errors:
+            raise ValueError('Injectable object has %i error%s.' % (errors, 's' if errors != 1 else ''))
+
+        flags = cls.Flags.LIBRARY if library else 0
+
+        adbi_low = get_section_range('.adbi')[0]
+
+        lines = {addr - adbi_low:fl for addr, fl in iter_lines() if is_addr_in_section('.adbi', addr) }
+        
+        return cls(code, name, comment, imports, exports, adbi, tracepoints, flags, lines)
+
+
+    @property
+    def is_library(self):
+        return bool(self.flags & self.Flags.LIBRARY)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Create ADBI injectables.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('--library', '-l', type=str, default='', help='produce a library injectable')
+    parser.add_argument('--comment', type=str, default='', help='specify output file comment')
+    parser.add_argument('--binary', type=str, help='linked binary path', default='')
+    parser.add_argument('--output', '-o', type=str, help='specify output file name')
+    parser.add_argument('input', type=str, help='input file name')
+    args = parser.parse_args();
+
+    outname = args.output or os.path.splitext(args.input)[0] + '.inj'
+    if outname == args.input:
+        parser.error('Cannot use same file for input and output.')
+
+    if args.binary and args.library:
+        parser.error('Cannot use library and binary simultaneously.')
+
+    try:
+        try:
+            # Input is an ELF file
+            if args.binary:
+                if any(x.isspace() for x in args.binary): 
+                    print 'warning: Binary path contains whitespace.' 
+                if not args.binary.startswith('/'): 
+                    print 'warning: Binary path is not absolute.'
+                path = os.path.normpath(args.binary)   
+                if path != args.binary: 
+                    print 'warning: Binary path normalized to "%s".' % path
+                name = path
+            else:   
+                name = args.library.strip()
+
+            comment = args.comment.strip() if args.comment else None
+            injectable = Injectable.from_io(args.input, name, comment, args.library)
+
+        except ValueError, e:
+            raise SystemExit(e)
+
+        # Save
+        injectable.save(outname)
+
+    except KeyboardInterrupt:
+        print 'Aborted.'
+        print 'Removing output file.'
+        try:
+            os.remove(outname)  
+        except:
+            pass
+
+    except IOError, e:
+        raise SystemExit(e)
+
+main()

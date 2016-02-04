@@ -1,0 +1,11 @@
+Snprintf implementation for ADBI.
+
+Unless ADBI IDK tools are mostly independent from toolchain, and cannot take advantege of libc standard library there is need to implement some helper functions. 
+
+Usage:
+Make sure ADBICC env variable is set to valid path to gcc. If not:
+export ADBICC=/path/to/gcc-4.9/bin/aarch64-linux-android-gcc
+
+Compile:
+mkinj --library adbi_snprintf adbi_snprintf.c
+

@@ -1,0 +1,14 @@
+# binary ./fibo
+
+IMPORT(adbi_printf, void, const char * fmt, ...);
+
+# handler fibo.c:4
+
+    # getvar n
+
+    adbi_printf("fibo!\n");
+    adbi_printf("%d\n", n);
+
+# endhandler
+
+INIT() {}

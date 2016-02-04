@@ -1,0 +1,243 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import argparse
+import re
+
+__version__ = "0.1"
+
+class DeassemblyParser(object):
+    
+    def __init__(self):
+        self.label = re.compile("([0-9a-f]+)\s+<(\w+)>:")
+        self.branch = re.compile("\s+([0-9a-f]+):[\s0-9a-f]+blx?\s[\s0-9a-f]+<(\w+@plt)>")
+        self.preamble = re.compile("\s+([0-9a-f]+):[\s0-9a-f]+(push|stm).*\s+.*lr\}")
+        self.epilogue = re.compile("\s+([0-9a-f]+):[\s0-9a-f]+((pop|ldm).*\s+.*pc\}|bx\s+lr)")
+        self.arm = re.compile("\s+([0-9a-f]+):\s+[0-9a-f]{8}\s+")
+        self.thumb = re.compile("\s+([0-9a-f]+):\s+[0-9a-f]{4}\s+")
+        self.thumb32 = re.compile("\s+([0-9a-f]+):\s+[0-9a-f]{4}\s[0-9a-f]{4}\s+")
+        
+        self.functions = None
+        self.calls = None
+    
+    def function2re(self, pattern):
+        return re.compile(''.join([".*android\d+", pattern.replace("::", ".*").strip(), "[DE].*"]))
+    
+    def call2re(self, pattern):
+        return re.compile(''.join([pattern.strip(), "@plt"]))
+    
+    def parse_patterns(self, patterns):
+        if not self.functions:
+            self.functions = {}
+        if not self.calls:
+            self.calls = {}
+            
+        for line in patterns:
+            splitted = line.split(None, 1)
+            if len(splitted) != 2:
+                continue
+            
+            if splitted[0] == 'function':
+                self.functions[splitted[1].strip()] = self.function2re(splitted[1]) 
+            elif splitted[0] == 'call':
+                self.calls[splitted[1].strip()] = self.call2re(splitted[1])
+    
+    def add_pattern(self, pattern):
+        self.functions[pattern] = pattern2re(pattern)
+    
+    def del_pattern(self, pattern):
+        return self.functions.pop(pattern)
+
+    def get_pattern(self, patterns, name):
+        if not patterns:
+            return None
+        
+        for (pattern, regex) in patterns.items():
+            if regex.match(name):
+                return pattern
+        return None 
+        
+    def gen_labels(self, code):
+        for label in self.gen_all_labels(code):
+            comment = self.get_pattern(self.functions, label['name'])
+            if self.functions:
+                if not comment:
+                    continue
+                
+            label['comment'] = comment if comment else label['name']
+                
+            new_calls = []
+            for call in label['calls']:
+                pattern = self.get_pattern(self.calls, call['name'])
+                if self.calls:
+                    if not pattern:
+                        continue
+                    
+                call['comment'] = ''.join([label['comment'], " calls ", pattern if pattern else call['name']])
+                new_calls.append(call)
+                
+            label['calls'] = new_calls
+                
+            yield label
+                        
+    def gen_calls(self, label):
+        if self.functions:
+            for call in label['calls']:
+                pattern = self.get_pattern(call['name'])
+                if pattern:
+                    call['comment'] = pattern
+                    yield call
+        else:
+            for call in label['calls']:
+                yield call
+    
+    def gen_all_labels(self, code):
+        current = None
+        for line in code:
+            m = self.label.match(line)
+            if m:
+                if current:
+                    yield current
+                                    
+                current = {}
+                current['name'] = m.group(2).strip()
+                current['address'] = int(m.group(1), 16)
+                current['calls'] = []
+                continue
+            
+            elif current and 'set' not in current:
+                if self.arm.match(line):
+                    current['set'] = 'arm'
+                elif self.thumb.match(line):
+                    current['set'] = 'thumb'
+            
+            if not current:
+                continue
+            
+            m = self.branch.match(line)
+            if m:
+                addr = int(m.group(1), 16)
+                call = {'address': addr, 'name': m.group(2)} 
+                if self.arm.match(line):
+                    call['set'] = 'arm'
+                    call['end'] = addr + 4
+                elif self.thumb32.match(line):
+                    call['set'] = 'thumb'
+                    call['end'] = addr + 4
+                elif self.thumb.match(line):
+                    call['set'] = 'thumb'
+                    call['end'] = addr + 2
+                
+                current['calls'].append(call)
+                continue
+            
+            m = self.preamble.match(line)
+            if m: 
+                if not current.has_key('preamble'):
+                    current['preamble'] = []
+                current['preamble'].append(int(m.group(1), 16))
+                continue
+            
+            m = self.epilogue.match(line)
+            if m:
+                if not current.has_key('epilogue'):
+                    current['epilogue'] = []
+                
+                current['epilogue'].append(int(m.group(1), 16))
+                continue
+
+        if current:
+            yield current
+
+class HandlerTemplate(object):
+    @classmethod
+    def generate(cls):
+        return ""
+    
+class FtraceHandlerTemplate(HandlerTemplate):
+
+    @classmethod
+    def generate(cls, biname, labels):
+        yield '''/* File generated by autohandler */
+#include <handler.h>
+#include <types.h>
+#include <adbicpy.h>
+#include <io.h>
+
+IMPORT(adbi_printf, void, const char * fmt, ...);
+
+static int ftrace_fd;
+static const int ftrace_on = 1;
+
+INIT {
+    if (ftrace_on)
+        ftrace_fd = open("/d/tracing/trace_marker", O_WRONLY, 0);
+    return 0;
+}
+
+#define H(address, message)                                       \\
+    HANDLER(address) {                                            \\
+        if (ftrace_on)                                            \\
+            write(ftrace_fd, message "\\n", sizeof(message "\\n")); \\
+                                                                  \\
+        adbi_printf(message);                                     \\
+    }
+
+''' 
+        for label in labels:
+            is_thumb = label.get('set', 'arm') == 'thumb' 
+            message = label.get('comment', label['name'])
+            
+            yield "/* %x %s */\n" % (label['address'], label['name'])
+            
+            if label.get('preamble', None):
+                address = label['address'] | 0x1 if is_thumb else label['address']
+                yield "H(%x, \"%s BEGIN\")\n" % (address, message)
+                #for pre in label['preamble']:
+                #    address = pre | 0x1 if is_thumb else pre
+                #    yield "H(%x, \"%s BEGIN at %x\")\n" % (pre, message, pre)
+            else:
+                address = label['address'] | 0x1 if is_thumb else label['address']
+                yield "H(%x, \"%s\")\n" % (address, message)
+
+
+            for call in label['calls']:
+                address = call['address'] | 0x1 if is_thumb else call['address']
+                call_message = call.get('comment', call['name'])
+                
+                if call.get('end', None):
+                    yield "H(%x, \"%s BEGIN\")\n" % (address, call_message)
+                    
+                    address = call['end'] | 0x1 if is_thumb else call['end']
+                    yield "H(%x, \"%s END\")\n" % (address, call_message)
+                else:
+                    yield "H(%x, \"%s\")\n" % (address, call_message)
+
+            if label.get('epilogue', None):
+                for epg in label['epilogue']:
+                    address = epg | 0x1 if is_thumb else epg
+                    yield "H(%x, \"%s END at %x\")\n" % (address, message, address)
+            
+            yield "\n"
+        
+        yield "__attribute__((section(\".biname\"))) char __adbi_binary[] = \"%s\";" % (biname) 
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='ADBI handler source code generator.')
+    parser.add_argument('-V', '--version', action='version',
+                        version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('--patterns', type=str, help='symbol names pattern list file')
+    parser.add_argument('input_file', type=str, help='deassembled binary file by objdump')
+    parser.add_argument('binary_path', type=str, help='path to binary')
+
+    args = parser.parse_args()
+    
+    parser = DeassemblyParser()
+    
+    if 'patters' in args:
+        with open(args.patterns) as f:
+            parser.parse_patterns(f)
+    
+    with open(args.input_file) as f:
+        labels = [ l for l in parser.gen_labels(f) ]
+        print "".join([line for line in FtraceHandlerTemplate.generate(args.binary_path, labels)])

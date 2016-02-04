@@ -1,0 +1,767 @@
+#!/usr/bin/python
+from collections import defaultdict
+from elftools.elf.constants import SH_FLAGS
+from elftools.elf.elffile import ELFFile, SymbolTableSection
+import argparse
+import capstone
+import itertools
+import logging
+import os.path
+import re
+import struct
+
+from cachereader.debuginfo import DebugInfo
+from cachereader.symbols import Symbol as DebugInfoSymbol
+from common.enums import InsnKinds
+from libasdd import disarm
+
+__version__ = "0.1"
+
+class Handler(object):
+    def __init__(self, location, names=[], text=[], comment=[], cond=None, comment_out=False, metadata=None):
+        self._text_indent = '    '
+        self.metadata = metadata
+        self.comment_out = comment_out
+
+        self.location = location
+        self.names = names
+        self.comment = comment
+        self.text = Handler.apply_cond(cond, text, self._text_indent)
+
+    @classmethod
+    def get_conditions(cls):
+        return [ "eq", "ne", "cs", "cc", "mi", "pl", "vs", "vc", "hi", "ls", "ge", "lt", "gt", "le", "al", "<und>", "" ]
+
+    @classmethod
+    def _get_cond_if(cls, cond):
+        return 'if (cpsr_is_{0}(get_cpsr()))'.format(cond)
+
+    @classmethod
+    def apply_cond(cls, cond, text, indent):
+        if cond and cond not in Handler.get_conditions():
+            raise ValueError("Illegal Handler condition: {0}, must be one of: {1}.".format(cond, ', '.join(Handler.get_conditions())))
+
+        if not cond or cond == "al" or cond == "<und>":
+            return text
+
+        for idx, line in enumerate(text):
+            text[idx] = indent + line
+
+        text.insert(0, Handler._get_cond_if(cond) + '{')
+        text.append('}')
+
+        return text
+
+    @classmethod
+    def merge(cls, first, second):
+        if first.location != second.location:
+            raise ValueError("Can't merge handlers with different location")
+
+        names = list(set(first.names + second.names))
+
+        text = first.text + [''] + second.comment + second.text
+        if first.metadata and second.metadata:
+            metadata = [first.metadata, second.metadata]
+        else:
+            metadata = first.metadata if first.metadata else second.metadata
+
+        comment_out = first.comment_out or second.comment_out
+
+        return Handler(first.location, names, text, first.comment, None, comment_out, metadata)
+
+    def format_text(self):
+        return self.comment + ["#handler " + self.location] + [ self._text_indent + line for line in self.text ] + ["#endhandler"]
+
+    def __str__(self):
+        if self.comment_out:
+            return '//' + '\n//'.join(self.format_text())
+        else:
+            return '\n'.join(self.format_text())
+
+class Filter(object):
+    def __init__(self, regex=[]):
+        self.regex = dict(zip(regex, [0] * len(regex)))
+
+    def compile(self, string):
+        self.regex[re.compile(string)] = 0
+
+    @classmethod
+    def create(cls, strings):
+        return Filter([re.compile(s.strip() + '$') for s in strings]) if strings else []
+
+    def filter(self, text):
+        matched = filter(None, [ r.match(text) for r in self.regex.keys() ])
+        for r in [ m.re for m in matched ]:
+            self.regex[r] += 1
+        return matched
+
+    def print_stats(self):
+        return [ '{0}: {1}'.format(k.pattern, v) for k, v in self.regex.items() ]
+
+def addr2off(sections, addr):
+    for s in sections:
+        sec_off = addr - s.header['sh_addr']
+        if 0 <= sec_off and sec_off < s.header['sh_size']:
+            return s.header['sh_offset'] + sec_off
+
+def fn_gen(debuginfo, fn_filter=None):
+    mapping = defaultdict(set)
+    for fn in debuginfo.functions:
+        if not fn_filter or fn_filter.filter(fn.name):
+            mapping[fn.lo].add(fn)
+
+    for addr in sorted(mapping):
+        yield mapping[addr]
+
+def fn_sym_gen(debuginfo, fn_filter=None):
+    mapping = defaultdict(set)
+    for fn in debuginfo.functions:
+        if not fn_filter or fn_filter.filter(fn.name):
+            mapping[fn.lo].add(fn)
+
+    for sym in [s for s in debuginfo.symbols if s.type == 'STT_FUNC' and s.value != 0 and s.size != 0 and s.name]:
+        addr = sym.value >> 1 << 1
+        if not mapping[addr] or type(iter(mapping[addr]).next()) is DebugInfoSymbol:
+            if not fn_filter or fn_filter.filter(sym.name):
+                mapping[addr].add(sym)
+
+    for addr in sorted(mapping):
+        if mapping[addr]:
+            yield mapping[addr]
+
+def sym_gen(sections, filter_fn=lambda x: x):
+    mapping = defaultdict(set)
+    for sym in ( symbol for section in sections for symbol in section.iter_symbols() if filter_fn(symbol) ):
+        mapping[sym['st_value']].add(sym)
+
+    for value in sorted(mapping):
+        yield mapping[value]
+
+def preamble_gen(debuginfo, elf, begin, offset, size):
+    conds = '|'.join(Handler.get_conditions())
+    quals = '|'.join(["\.w", "\.n", ""])
+    tests = [ re.compile(regex) for regex in [
+                '(?:stm|stm[di][ab]|stm[ef][ad])(' + conds + ')(?:' + quals + ')\s+sp!,\s+{.*lr}',
+                'push(' + conds + ')(?:' + quals + ')\s+{.*pc}' ]]
+    for addr, insn, kind, text in disarm_gen(debuginfo, elf, begin, offset, size):
+        for regex in tests:
+            m = regex.match(text)
+            if m:
+                yield (addr, insn, kind, m.group(1), text)
+                break
+
+def epilog_gen(debuginfo, elf, begin, offset, size):
+    end = begin + size
+    conds = '|'.join(Handler.get_conditions())
+    quals = '|'.join(["\.w", "\.n", ""])
+    tests = [ re.compile(regex) for regex in [
+                'ret',
+                '(?:ldm|ldm[di][ab]|ldm[ef][ad])(' + conds + ')(?:' + quals + ')\s+sp!,\s+{.*pc}',
+                'pop(' + conds + ')(?:' + quals + ')\s+{.*pc}',
+                'bx(' + conds + ')(?:' + quals + ')\s+lr',
+                'b(' + conds + ')(?:' + quals + ')\s+0x([0-9A-Fa-f]+)' ]]
+    for addr, insn, kind, text in disarm_gen(debuginfo, elf, begin, offset, size):
+        for regex in tests:
+            m = regex.match(text)
+            if m:
+                if len(m.groups()) == 0:
+                    yield (addr, insn, kind, 'al', text)
+                    break 
+                if len(m.groups()) == 1:
+                    yield (addr, insn, kind, m.group(1), text)
+                    break
+                elif len(m.groups()) == 2:
+                    ba = int(m.group(2), 16)
+                    if ba < begin or end <= ba:
+                        yield (addr, insn, kind, m.group(1), text)
+                        break
+
+def disarm_gen(debuginfo, stream, addr, offset, size):
+    global md
+    end_addr = addr + size
+    cur_addr = addr
+    old_pos = stream.tell()
+    stream.seek(offset)
+    md = None
+    while cur_addr < end_addr:
+        if debuginfo.insnset[cur_addr] == InsnKinds.arm64:
+            _, _, hi = debuginfo.insnset.get_kind_range(cur_addr)
+            if not md:
+                md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM)
+            b = (min(hi, end_addr) if hi else end_addr) - cur_addr
+            for i in md.disasm(stream.read(b), cur_addr):
+                yield (i.address, struct.unpack('<I', i.bytes)[0], InsnKinds.arm64, '{0}\t{1}'.format(i.mnemonic, i.op_str))
+            cur_addr += b
+        elif debuginfo.insnset[cur_addr] == InsnKinds.thumb:
+            insn = disarm.intify(stream.read(2))
+            if disarm.is_thumb2(insn):
+                insn <<= 16
+                insn += disarm.intify(stream.read(2))
+                yield (cur_addr, insn, InsnKinds.thumb, disarm.disthumb2a(insn, cur_addr))
+                cur_addr += 4
+            else:
+                yield (cur_addr, insn, InsnKinds.thumb, disarm.disathumba(insn, cur_addr))
+                cur_addr += 2
+        elif debuginfo.insnset[cur_addr] == InsnKinds.arm:
+            insn = disarm.intify(stream.read(4))
+            yield (cur_addr, insn, InsnKinds.arm, disarm.disarma(insn, cur_addr))
+            cur_addr += 4
+        else:
+            word = disarm.intify(stream.read(4))
+            yield (cur_addr, word, InsnKinds.nocode, '.word\t0x{0:08x}'.format(word))
+            cur_addr += 4
+    stream.seek(old_pos)
+
+def disarm_str(debuginfo, stream, addr, off, size):
+    if size > 0:
+        for addr, insn, kind, line in disarm_gen(debuginfo, stream, addr, off, size):
+            yield format_insn(addr, insn, kind, line)
+
+def format_insn(addr, insn, kind, text):
+    addr = addr >> 1 << 1
+    if kind == InsnKinds.thumb:
+        if insn > 0xffff:
+            return '{0:8x}:\t{1:04x} {2:04x} \t'.format(addr, insn >> 16, insn & 0xffff) + text.strip()
+        else:
+            return '{0:8x}:\t{1:04x}      \t'.format(addr, insn) + text.strip()
+    else:
+        return '{0:8x}:\t{1:08x} \t'.format(addr, insn) + text.strip()
+
+def objdump(debuginfo, elf, exec_sections=True):
+    sections = {idx:elf.get_section(idx) for idx in range(0, elf.num_sections())}
+    sections = dict((k, v) for k, v in sections.items() if v.header['sh_flags'] & SH_FLAGS.SHF_ALLOC)
+    if exec_sections:
+        sections = dict((k, v) for k, v in sections.items() if v.header['sh_flags'] & SH_FLAGS.SHF_EXECINSTR)
+
+    for nr in sorted(sections.keys()):
+        section = sections[nr]
+        stype = section.header['sh_type']
+        if stype == 'SHT_NOBITS' or stype == 'SHT_NULL':
+            continue
+        yield ''
+        yield 'Disassembly of section ' + section.name + ':'
+        yield ''
+        symbols = defaultdict(set)
+        for sym in [s for s in debuginfo.symbols if s.shndx == nr]:
+            symbols[sym.value].add(sym)
+
+        begin = section.header['sh_addr']
+        end = begin + section.header['sh_size']
+        last = begin
+
+        it1, it2 = itertools.tee(sorted(symbols.keys()))
+        next(it2, None)
+        for cur, nxt in itertools.izip_longest(it1, it2):
+            if cur < begin or end <= cur:
+                continue
+
+            syms = symbols[cur]
+            size = max([sym.size for sym in syms])
+            size = min([size, nxt - cur]) if nxt and cur < nxt and nxt <= end else size
+
+            cur = cur >> 1 << 1
+
+            for name in set(sorted([s.name for s in syms if s.size == 0 and s.name])):
+                yield '{0:08x} <{1}>:'.format(cur, name)
+                yield ''
+            for name in set(sorted([s.name for s in syms if s.size != 0 and s.name])):
+                yield '{0:08x} <{1}>:'.format(cur, name)
+
+            off = addr2off([section], cur)
+            for line in disarm_str(debuginfo, elf.stream, cur, off, size):
+                yield line
+
+            last = cur + size
+            yield ''
+
+        for line in disarm_str(debuginfo, elf.stream, last, addr2off([section], last), end - last):
+            yield line
+
+def dwarf_objdump(debuginfo, fn_gen, elf):
+    sections = [ s for s in elf.iter_sections() if s.header['sh_flags'] & SH_FLAGS.SHF_ALLOC and s.header['sh_flags'] & SH_FLAGS.SHF_EXECINSTR]
+    for fns in fn_gen:
+        fn = next(iter(fns))
+        yield '{0:08x} <{1}>:'.format(fn.lo, fn.name)
+        for line in disarm_str(debuginfo, elf.stream, fn.lo, addr2off(sections, fn.lo), fn.hi - fn.lo):
+            yield line
+        yield ''
+
+def insn_printf(debuginfo, elf, track_insn, sym_gen, name_filter=None):
+    regex = re.compile(track_insn + '(' + '|'.join(Handler.get_conditions()) + ')')
+    exec_sections = (s for s in elf.iter_sections() if s.header['sh_flags'] & SH_FLAGS.SHF_ALLOC and s.header['sh_flags'] & SH_FLAGS.SHF_EXECINSTR)
+    sym_sections = (s for s in elf.iter_sections() if type(s) is SymbolTableSection )
+    symbols = [ s for s in sym_gen(sym_sections, filter_fn = lambda x: True if x['st_info']['type'] == 'STT_FUNC' else False) ]
+
+    yield '\n'.join(['#binary %s' % debuginfo.device_path,
+                     '',
+                     'IMPORT(adbi_printf, void, const char * fmt, ...);',
+                     '',
+                     'INIT() {}'])
+    for section in exec_sections:
+        begin = section.header['sh_addr']
+        end = begin + section.header['sh_size']
+        for idx, syms in enumerate(symbols):
+            if name_filter:
+                ss = [s for s in syms if begin <= s['st_value'] and s['st_value'] < end and name_filter.filter(s.name)]
+            else:
+                ss = [s for s in syms if begin <= s['st_value'] and s['st_value'] < end]
+            if not ss:
+                continue
+            saddr = ss[0]['st_value'] >> 1 << 1
+            size = max(ss, key=lambda x: x['st_size'])['st_size']
+            end_addr = list(symbols[idx + 1])[0]['st_value'] if idx < len(symbols)-1 else end
+            size = min(size, end_addr - saddr)
+            off = addr2off([section], saddr)
+            names = sorted(set(s.name for s in ss if s['st_size'] != 0))
+            for addr, insn, kind, text in disarm_gen(debuginfo, elf.stream, saddr, off, size):
+                m = regex.match(text)
+                if m:
+                    msg = '{0} at {1:8x} in sym: {2}.'.format(text, addr, ', '.join(names))
+                    handler_text = [ 'adbi_printf("{0}");'.format(msg) ]
+                    comment = ['/* ' + format_insn(addr, insn, kind, text) + '*/']
+                    yield ''
+                    yield Handler('*%#010x' % addr, names, handler_text, comment, m.group(1))
+
+def insn_systrace(debuginfo, elf, track_insn, sym_gen, name_filter=None, disassemble=False):
+    regex = re.compile(track_insn + '(' + '|'.join(Handler.get_conditions()) + ')')
+    sections = {idx:elf.get_section(idx) for idx in range(0, elf.num_sections())}
+    sections = dict((k, v) for k, v in sections.items()
+                    if v.header['sh_flags'] & SH_FLAGS.SHF_ALLOC and v.header['sh_flags'] & SH_FLAGS.SHF_EXECINSTR)
+
+    yield '\n'.join(['#binary %s' % debuginfo.device_path,
+            '#include <unix.h>',
+            '#include <io.h>',
+            '',
+            'IMPORT(adbi_snprintf, int, char *str, size_t size, const char *fmt, ...);',
+            '',
+            'static int adbi_systrace_fd;',
+            'static pid_t adbi_systrace_tgid;',
+            '',
+            'static const int adbi_systrace_size = 512;',
+            '',
+            'INIT(int pid, int tgid) {',
+            '    adbi_systrace_tgid = tgid;',
+            '    adbi_systrace_fd = open("/d/tracing/trace_marker", O_WRONLY, 0);',
+            '    return 0;',
+            '}',
+            '',
+            'NEW_PROCESS(int tgid) {',
+            '    adbi_systrace_tgid = tgid;',
+            '    return 0;',
+            '}',
+            '',
+            'EXIT() {',
+            '    close(adbi_systrace_fd);',
+            '    return 0;',
+            '}'])
+
+    for nr in sorted(sections.keys()):
+        section = sections[nr]
+        symbols = defaultdict(set)
+        for sym in [s for s in debuginfo.symbols if s.shndx == nr]:
+            if not name_filter or name_filter.filter(sym.name):
+                symbols[sym.value].add(sym)
+
+        begin = section.header['sh_addr']
+        end = begin + section.header['sh_size']
+
+        it1, it2 = itertools.tee(sorted(symbols.keys()))
+        next(it2, None)
+        for cur, nxt in itertools.izip_longest(it1, it2):
+            if cur < begin or end <= cur:
+                continue
+            syms = symbols[cur]
+            cur = cur >> 1 << 1
+            nxt = nxt >> 1 << 1 if nxt else nxt
+            size = max([sym.size for sym in syms])
+            size = min([size, nxt - cur]) if nxt and cur < nxt and nxt <= end else size
+            names = [name for name in set(sorted([s.name for s in syms if s.size != 0]))]
+            off = addr2off([section], cur)
+
+            stack = set()
+
+            asm_printed = False
+            end_msg = None
+            end_cond = None
+            for addr, insn, kind, text in disarm_gen(debuginfo, elf.stream, cur, off, size):
+                end_handler = None
+                if end_msg:
+                    handler_text = ['const char adbi_systrace_msg[] = "{0}";'.format(end_msg),
+                                    'write(adbi_systrace_fd, adbi_systrace_msg, sizeof(adbi_systrace_msg));']
+                    comment = ['/* ' + format_insn(addr, insn, kind, text) + ' */']
+                    end_handler = Handler('*%#010x' % addr, names, handler_text, comment, end_cond)
+                    end_msg = None
+
+                m = regex.match(text)
+                if not m:
+                    while stack:
+                        yield ''
+                        yield stack.pop()
+                    if end_handler:
+                        yield ''
+                        yield end_handler
+                    continue
+
+                comment = []
+                if disassemble and not asm_printed:
+                    comment.append('/*')
+                    comment += ['{0:08x} <{1}>:'.format(cur, name) for name in names]
+                    for line in disarm_str(debuginfo, elf.stream, cur, off, size):
+                        comment.append(line)
+                    comment.append('*/')
+                    asm_printed = True
+                comment += ['/* ' + format_insn(addr, insn, kind, text) + ' */']
+
+                fmt = 'B|%d|{0:x} {1} {2}\\n'.format(addr, ', '.join(names), text)
+                handler_text = ['const char adbi_systrace_msg[] = "{0}";'.format(fmt),
+                                'int adbi_systrace_len;',
+                                'char adbi_systrace_buf[adbi_systrace_size];',
+                                'adbi_systrace_len = adbi_snprintf(adbi_systrace_buf, adbi_systrace_size - 1, adbi_systrace_msg, adbi_systrace_tgid);',
+                                'write(adbi_systrace_fd, adbi_systrace_buf, adbi_systrace_len < adbi_systrace_size ? adbi_systrace_len : adbi_systrace_size);']
+
+                handler = Handler('*%#010x' % addr, names, handler_text, comment, m.group(1))
+                if end_handler:
+                    handler = Handler.merge(end_handler, handler)
+                stack.add(handler)
+
+                end_msg = 'E|{0:x}: {1}: {2}\\n'.format(addr, ', '.join(names), text)
+                end_cond = m.group(1)
+
+def fn_systrace(debuginfo, elf, fn_gen, fn_names=False, disassemble=False):
+    sections = [s for s in elf.iter_sections() if s.header['sh_flags'] & SH_FLAGS.SHF_ALLOC and s.header['sh_flags'] & SH_FLAGS.SHF_EXECINSTR]
+
+    yield '\n'.join(['#binary %s' % debuginfo.device_path,
+            '#include <unix.h>',
+            '#include <io.h>',
+            '',
+            'IMPORT(adbi_snprintf, int, char *str, size_t size, const char *fmt, ...);',
+            '',
+            'static int adbi_systrace_fd;',
+            'static pid_t adbi_systrace_tgid;',
+            '',
+            'static const int adbi_systrace_size = 512;',
+            '',
+            'INIT(int pid, int tgid) {',
+            '    adbi_systrace_tgid = tgid;',
+            '    adbi_systrace_fd = open("/d/tracing/trace_marker", O_WRONLY, 0);',
+            '    return 0;',
+            '}',
+            '',
+            'NEW_PROCESS(int tgid) {',
+            '    adbi_systrace_tgid = tgid;',
+            '    return 0;',
+            '}',
+            '',
+            'EXIT() {',
+            '    close(adbi_systrace_fd);',
+            '    return 0;',
+            '}'])
+
+    generated = [f for f in fn_gen]
+    it1, it2 = itertools.tee(generated)
+    next(it2, None)
+    for fns, nxt in itertools.izip_longest(it1, it2):
+        # function begin
+        names = sorted(set([fn.name for fn in fns]))
+        fn = next(iter(fns))
+        name = fn.name
+        if type(fn) is DebugInfoSymbol:
+            symbol = True
+            lo = fn.value
+            hi = lo + min([f.size for f in fns if f.size != 0])
+            params = []
+        else:
+            symbol = False
+            lo = fn.lo
+            hi = fn.hi
+            params = fn.params
+        lo = lo >> 1 << 1
+        hi = hi >> 1 << 1
+        addri = lo | 1 if debuginfo.insnset[lo] == InsnKinds.thumb else lo
+
+        overlapping_symbol = False
+        if nxt:
+            fn_nxt = next(iter(nxt))
+            if type(fn_nxt) is DebugInfoSymbol:
+                lo_nxt = fn_nxt.value
+            else:
+                lo_nxt = fn_nxt.lo
+            lo_nxt >> 1 << 1
+
+            if lo_nxt < hi:
+                # overlapping symbols
+                overlapping_symbol = True
+                hi = lo_nxt
+
+        text = ['int adbi_systrace_len;',
+                'char adbi_systrace_buf[adbi_systrace_size];']
+
+        printf_fmt = [' '.join(names)]
+        if not symbol:
+            printf_fmt.append(' (')
+        printf_args = []
+
+        if params:
+            for idx, param in enumerate(params):
+                if idx != 0:
+                    printf_fmt.append(', ')
+
+                if not param.name:
+                    printf_fmt.append("<unused>")
+                elif param.accessible_at(addri):
+                    text.append('#getvar %s' % param.name)
+                    fmt, args = param.datatype.simple_printf(param.name)
+                    printf_fmt.append(fmt)
+                    printf_args += args
+                else:
+                    printf_fmt.append("<optimized-out>")
+
+        if not symbol:
+            printf_fmt.append(')')
+        printf_args.insert(0, 'adbi_systrace_tgid')
+
+        fmt = 'B|%d|' + ''.join(printf_fmt) + '\\n'
+        args = ', '.join(printf_args)
+        text += ['const char adbi_systrace_msg[] = "{0}";'.format(fmt), 
+                 'adbi_systrace_len = adbi_snprintf(adbi_systrace_buf, adbi_systrace_size - 1, adbi_systrace_msg, {0});'.format(args),
+                 'write(adbi_systrace_fd, adbi_systrace_buf, adbi_systrace_len < adbi_systrace_size ? adbi_systrace_len : adbi_systrace_size);']
+
+        comment = []
+        if disassemble:
+            off = addr2off(sections, lo)
+            comment.append('/*')
+            comment += ['{0:08x} <{1}>:'.format(lo, name) for name in names]
+            for idx, line in enumerate(disarm_str(debuginfo, elf.stream, lo, off, hi - lo)):
+                comment.append(line)
+                if idx == 0:
+                    first_line = line
+            comment.append('*/')
+            comment.append('/* ' + first_line + ' */')
+
+        comment.append('/* {0} at 0x{1:08x} */'.format(', '.join(names), lo))
+        begin_handler = Handler(name if fn_names else '*%#010x' % addri, names, text, comment)
+        begin_addr = lo
+
+        # function end
+        for eaddr, insn, kind, cond, insn_text in epilog_gen(debuginfo, elf.stream, lo, addr2off(sections, lo), hi - lo):
+            eaddri = eaddr
+            if debuginfo.insnset[eaddr] == InsnKinds.thumb:
+                eaddri |= 1
+            msg = 'E|%d|{0:x} {1} 0x%x\\n'.format(eaddri, ' '.join(names))
+            text = ['int adbi_systrace_len;',
+                    'char adbi_systrace_buf[adbi_systrace_size];',
+                    'void *adbi_res = (void *) get_reg(0);',
+                    'const char adbi_systrace_msg[] = "{0}";'.format(msg),
+                    'adbi_systrace_len = adbi_snprintf(adbi_systrace_buf, adbi_systrace_size - 1, adbi_systrace_msg, adbi_systrace_tgid, adbi_res);',
+                    'write(adbi_systrace_fd, adbi_systrace_buf, adbi_systrace_len < adbi_systrace_size ? adbi_systrace_len : adbi_systrace_size);']
+            comment = [ '/* {0} */'.format(format_insn(eaddri, insn, kind, insn_text)) ]
+            handler = Handler(name + "+" + hex(eaddr-lo) if fn_names else '*%#010x' % eaddri, names, text, comment, cond)
+            if begin_addr == eaddr:
+                #first instruction is branch - merge handlers
+                yield ''
+                yield Handler.merge(begin_handler, handler)
+                begin_handler = None
+                continue
+
+            if begin_handler:
+                yield ''
+                yield begin_handler
+                begin_handler = None
+
+            yield ''
+            yield handler
+
+        if begin_handler:
+            if overlapping_symbol:
+                for a, i, k, t in disarm_gen(debuginfo, elf.stream, lo, addr2off(sections, lo), hi - lo):
+                    pass
+                ai = a
+                if debuginfo.insnset[ai] == InsnKinds.thumb:
+                    ai |= 1
+                msg = 'E|{0:x} overlapping {1}\\n'.format(ai, ' '.join(names))
+                text = ['const char adbi_systrace_msg[] = "{0}";'.format(msg),
+                        'write(adbi_systrace_fd, adbi_systrace_msg, sizeof(adbi_systrace_msg));']
+                comment = [ '/* {0} */'.format(format_insn(ai, i, k, t)) ]
+                handler = Handler(name + "+" + hex(eaddr-lo) if fn_names else '*%#010x' % ai, names, text, comment)
+
+                if begin_addr == a:
+                    yield ''
+                    yield Handler.merge(begin_handler, handler)
+                else:
+                    yield ''
+                    yield begin_handler
+                    yield ''
+                    yield handler
+                begin_handler = None
+
+            else:
+                logging.warning('No epilog for function at {0} named: {1}. Ignoring.'.format(begin_handler.location, ', '.join(begin_handler.names)))
+                begin_handler.comment_out = True
+                yield ''
+                yield begin_handler
+
+def fn_printf(debuginfo, fn_names=False, name_filter=None):
+    yield '\n'.join(['#binary %s' % debuginfo.device_path,
+                     '',
+                     'IMPORT(adbi_printf, void, const char * fmt, ...);',
+                     '',
+                     'INIT() {}'])
+
+    for fns in fn_gen(debuginfo, name_filter):
+        fn = next(iter(fns))
+        addr = fn.lo
+        if debuginfo.insnset[addr] == InsnKinds.thumb:
+            addr |= 1
+
+        names = sorted(fn.name for fn in fns)
+        text = []
+
+        if fn.params:
+            text.append('adbi_printf("%%s(\\n", "%s");' % ' | '.join(names))
+            for idx, param in enumerate(fn.params):
+                if not param.name:
+                    text.append('// unnamed argument %d' % idx)
+                elif param.accessible_at(addr):
+                    comment = ''
+                    try:
+                        param.getvar(addr)
+                    except Exception as e:
+                        comment = '// '
+                        logging.warning("Unable to get DWARF expression of variable %s: %s" % (param.name, str(e)))
+                        text.append('// Unable to get DWARF expression: %s' % str(e))
+
+                    text.append(comment + '#getvar %s' % param.name)
+                    text.append(comment +  param.datatype.simple_adbi_printf(param.name))
+                else:
+                    text.append('// variable %s is not accessible' % param.name)
+                    text.append('adbi_printf("  %%s = <optimized-out>\\n", "%s");' % param.name)
+            
+            text.append('adbi_printf("  );\\n");')
+        else:
+            text.append('adbi_printf("%%s()\\n", "%s");' % ' | '.join(names))
+
+        yield ''
+        yield Handler(fn.name if fn_names else '*%#010x' % addr, names, text)
+
+def load_debuginfo(binary, script=None, sysroot='/'):
+    if os.path.isabs(binary):
+        path = os.path.join(sysroot, binary[1:])
+    else:
+        if script:
+            path = os.path.join(os.path.dirname(script), binary)
+        else:
+            path = binary
+    return DebugInfo.load(path)
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='ADBI generic script generator.',
+                                     formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('-V', '--version', action='version',
+                    version="%(prog)s (ADBI 3.0 project) " + __version__)
+    parser.add_argument('input', type=str, help='input file')
+    parser.add_argument('--sysroot', type=str, default='.', metavar='dir',
+                        help='use dir as the logical root directory for binaries (default: %(default)s)')
+    parser.add_argument('--action', '-a', 
+                        type=str, 
+                        choices='fns insn dasm dasm_all dwarf_dasm'.split(),
+                        default='fns', help=
+'''Type of output information (default: %(default)s). Available actions:
+    fns         - generate handlers at function entry and exit points,
+                  pass function arguments and return values
+    insn        - generate handlers at specific instruction and at the next
+                  instruction to track execution of single instruction
+    dasm        - display assembler contents of executable sections
+                  in objdump-like format
+    dasm_all    - display assembler contents of all sections
+                  in objdump-like format
+    dwarf_dasm  - like ,,disassemble'' but use function information from DWARF''')
+    parser.add_argument('--track-instruction', '-i',
+                        type=str,
+                        metavar='INSTRUCTION',
+                        default='svc', help='''Instruction to be tracked across whole binary.
+Only works with ``instruction'' action  (default: %(default)s).''')
+    parser.add_argument('--template', '-t',
+                        type=str,
+                        choices='adbi_printf systrace'.split(),
+                        default='adbi_printf', help=
+'''structure of output script. Available templates:
+    adbi_printf - send gathered information with adbi_printf
+    systrace    - write gathered information to ftrace tracing marker in
+                  systrace format - extend systrace functionality''')
+    parser.add_argument('--log', '-l', 
+                        type=str, 
+                        choices='DEBUG INFO WARNING ERROR CRITICAL'.split(), 
+                        default='INFO', help='set verbosity level')
+    parser.add_argument('--use-function-names', '-n',
+                        action='store_true',
+                        help='use function names instead of addresses in #handler directives')
+#    parser.add_argument('--resolve-getvars', '-g',
+#                        action='store_true',
+#                        help='do not use #getvar directive, resolve all variable location information')
+    parser.add_argument('--filter', '-f',
+                        type=argparse.FileType('r'), default=None, help=
+'''Filter pattern file. File containing symbol regex patterns, one per line. All matched
+symbols will be filtered out.''')
+    parser.add_argument('--disassemble', '-D',
+                        action='store_true',
+                        help='attach disassembled code of functions and symbols')
+    args = parser.parse_args()
+
+    loglevel = getattr(logging, args.log.upper())
+    logging.basicConfig(format='%(message)s', level=loglevel)
+    
+    debuginfo = None
+
+    try:
+        debuginfo = load_debuginfo(args.input, None, args.sysroot)
+    except Exception as e:
+        logging.warning("Unable to load debug information: %s" % e)
+
+    debuginfo.device_path = args.input
+
+    name_filter = Filter.create(args.filter)
+
+    if args.action == 'dasm':
+        with open(debuginfo.path, 'rb') as elf:
+            gen = objdump(debuginfo, ELFFile(elf))
+            for line in gen:
+                print line
+
+    if args.action == 'dasm_all':
+        with open(debuginfo.path, 'rb') as elf:
+            gen = objdump(debuginfo, ELFFile(elf), exec_sections=False)
+            for line in gen:
+                print line
+
+    elif args.action == 'dwarf_dasm':
+        with open(debuginfo.path, 'rb') as elf:
+            gen = dwarf_objdump(debuginfo, fn_gen(debuginfo, name_filter), ELFFile(elf))
+            for line in gen:
+                print line
+
+    elif args.template == 'adbi_printf':
+        if args.action == 'fns':
+            gen = fn_printf(debuginfo, args.use_function_names, name_filter)
+            for line in gen:
+                print line
+        elif args.action == 'insn':
+            with open(debuginfo.path, 'rb') as elf:
+                gen = insn_printf(debuginfo, ELFFile(elf), args.track_instruction, sym_gen, name_filter)
+                for line in gen:
+                    print line
+
+    elif args.template == 'systrace':
+        with open(debuginfo.path, 'rb') as elf:
+            if args.action == 'fns':
+                gen = fn_systrace(debuginfo, ELFFile(elf), fn_sym_gen(debuginfo, name_filter),
+                                  fn_names=args.use_function_names, disassemble=args.disassemble)
+            elif args.action == 'insn':
+                gen = insn_systrace(debuginfo, ELFFile(elf), args.track_instruction,
+                                    sym_gen, name_filter, disassemble=args.disassemble)
+            print '\n'.join(str(block) for block in gen)
+
+    if name_filter:
+        for (p, v) in [ (k.pattern, v) for k, v in name_filter.regex.items() if v > 1 ]:
+            logging.debug('filter: pattern "{0}" was matched {1} times'.format(p, v))
+        for p in [ k.pattern for k, v in name_filter.regex.items() if v == 0 ]:
+            logging.warning('filter: pattern "{0}" was never matched'.format(p))

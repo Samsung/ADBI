@@ -1,0 +1,95 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+from argparse import ArgumentParser
+from collections import defaultdict
+from os import path
+import subprocess
+import sys
+
+__author__ = 'Michał Leśniewski'
+__contact__ = 'm.lesniewski@samsung.com'
+__version__ = '0.1'
+
+def process_file(readelf, file):
+    cmd = [readelf, '-s', '-W', file]
+
+    imports, exports = set(), set()
+
+    for line in subprocess.check_output(cmd).split('\n'):
+        try:
+            num, val, size, type, bind, vis, ndx, name = line.split()
+
+            if bind != 'GLOBAL':
+                continue
+
+            num = int(num[:-1])
+            val = int(val, 16)
+            size = int(size)
+
+            if ndx == 'UND':
+                imports.add(name)
+            else:
+                exports.add(name)
+
+        except ValueError:
+            pass
+
+    return imports, exports 
+
+
+def main():
+    parser = ArgumentParser(description='Find unreferenced global symbols in a set of object files.')
+    parser.add_argument('--check', type=str, nargs='*', default=[], help='only print symbols from the given file')
+    parser.add_argument('--ignore', type=str, nargs='*', default=['main'], help='ignore the given symbols (by default only main is ignored)')
+    parser.add_argument('--readelf', type=str, nargs='?', default='readelf', help='specify readelf path')
+    parser.add_argument('input', type=str, nargs='+', help='object file')
+
+    args = parser.parse_args()
+
+    ignore = set(args.ignore)
+    exportmap = defaultdict(list)
+    exported, imported = set(), set()
+
+    # Use nicely formatted paths 
+    files = [path.relpath(path.normpath(f)) for f in args.input]
+    check = [path.relpath(path.normpath(f)) for f in args.check]
+
+    if check:
+        check = [x for x in check if x in files]
+    else:
+        check = files
+
+    for file in files:
+        try:
+            i, e = process_file(args.readelf, file)
+        except (subprocess.CalledProcessError, OSError), e:
+            print e 
+            sys.exit(-1)
+
+        for s in e:
+            exportmap[s].append(file)
+        exported |= e
+        imported |= i
+
+    total = 0;
+    unused = sorted(exported - imported - ignore)
+    
+    for file in check:
+        unused_in_file = [x for x in unused if file in exportmap[x]]
+        if not unused_in_file:
+            continue
+        total += len(unused_in_file)
+        print '%s:' % file
+        for symbol in unused_in_file:
+            print '    %s' % symbol
+        print
+    print '%i unreferenced symbol%s found.' % (total, '' if total == 1 else 's')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print
+        print 'Aborted.'

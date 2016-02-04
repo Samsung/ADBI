@@ -1,0 +1,18 @@
+Demo shows how easy is creating injectable code. File fibo.adbi contains source code of handler that will be executed when execution flow reaches 4th line of fibo.c file (beginning of fibo procedure). Handler will get value of ``n'' variable and print it to adbilog.   
+
+1. Compile fibo example:
+
+/path/to/gcc-4.9/bin/aarch64-linux-android-gcc -pie -fPIC -ggdb3 -o fibo fibo.c
+
+2. Compile injectable:
+Make sure ADBICC env variable is set to valid path to gcc. If not:
+export ADBICC=/path/to/gcc-4.9/bin/aarch64-linux-android-gcc
+
+a) make injectable:
+
+mkinj --binary /data/fibo ./fibo.adbi
+
+3. Push files to the device
+
+adb push ./fibo /data/
+adb push ./fibo.inj /data/
