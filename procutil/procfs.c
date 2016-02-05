@@ -160,12 +160,12 @@ pid_t procfs_get_tracerpid(pid_t pid) {
  * failure return '?'. */
 char procfs_pid_state(pid_t pid, pid_t tid) {
     char * val = get_status_field(pid, tid, "State");
-    
+
     if (val) {
         return val[0];
-        free(val);
-    } else
-        return '?';
+    }
+
+    return '?';
 }
 
 /**********************************************************************************************************************/
