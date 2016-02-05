@@ -161,7 +161,7 @@ static const template_t * decode_arm_load_store(insn_t insn) {
     insn_t w = bit(insn, 21);
     insn_t p = bit(insn, 24);
     
-    int writeback = (!p) || (p && w);
+    int writeback = !p || w;
     
     insn_t rn = reg(16);        /* base register */
     insn_t rd = reg(12);        /* transferred register */
