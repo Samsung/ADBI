@@ -39,9 +39,8 @@ static int caps_can_ptrace() {
         return 0;
     }
     
-    res = (caps.effective & (1 << CAP_SYS_PTRACE))
-    
-          debug("We have %spermission to use ptrace.", res ? "", "no ");
+    res = (caps.effective & (1 << CAP_SYS_PTRACE));
+    debug("We have %spermission to use ptrace.", res ? "" : "no ");
     return res;
 }
 
